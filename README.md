@@ -1,367 +1,234 @@
-# Web Agent - Development Environment
+# Web Agent with LibreChat, OpenRouter, and MCP
 
-A full-stack web application with a chat interface, featuring a Python FastAPI backend and a simple HTML/CSS/JS frontend.
-
-## 🚀 Quick Start
-
-**Get started in 3 commands:**
-
-```bash
-cd /Users/emin/Desktop/Web-Agent
-./dev.sh start
-# Open http://localhost:8080
-```
-
-**That's it!** See [GETTING_STARTED.md](./GETTING_STARTED.md) for detailed setup instructions.
-
-## 📁 Project Structure
-
-```
-Web-Agent/
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   └── main.py           # FastAPI application
-│   ├── Dockerfile            # Backend Docker configuration
-│   └── requirements.txt      # Python dependencies
-├── frontend/
-│   ├── index.html            # Main HTML page
-│   ├── styles.css            # Styling
-│   ├── app.js                # Frontend JavaScript
-│   └── Dockerfile            # Frontend Docker configuration
-├── docker-compose.yml        # Docker Compose orchestration (includes Ollama)
-├── .env                      # Environment variables (not in git)
-├── .env.example              # Example environment variables
-└── README.md                 # This file
-```
-
-## 🚀 Prerequisites
-
-Before you begin, ensure you have the following installed:
-- **Docker** (version 20.10 or higher)
-- **Docker Compose** (version 2.0 or higher)
-
-To verify your installation:
-```bash
-docker --version
-docker compose version
-```
-
-## ⚙️ Setup Instructions
-
-### 1. Clone or Navigate to the Project
-
-```bash
-cd /path/to/Web-Agent
-```
-
-### 2. Environment Variables
-
-The project uses environment variables stored in a `.env` file. A template is provided in `.env.example`.
-
-**Important:** The `.env` file is already created for you. If you need to modify settings:
-
-```bash
-# View current environment variables
-cat .env
-
-# Or copy from example if needed
-cp .env.example .env
-```
-
-**Available Environment Variables:**
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `UVICORN_HOST` | `0.0.0.0` | Backend server host |
-| `UVICORN_PORT` | `8000` | Backend server port |
-| `CORS_ALLOW_ORIGINS` | `http://localhost:8080,...` | Allowed CORS origins |
-| `ENVIRONMENT` | `development` | Environment name |
-| `DEBUG` | `true` | Debug mode flag |
-
-### 3. Build and Run
-
-Start the entire stack with a single command:
-
-```bash
-docker compose up --build
-```
-
-**Options:**
-- Run in detached mode (background): `docker compose up -d --build`
-- Rebuild without cache: `docker compose build --no-cache && docker compose up`
-
-### 4. Pull the LLM Model
-
-After starting the services, pull the Llama model:
-
-```bash
-docker exec -it web-agent-ollama ollama pull llama3.1:8b
-```
-
-This will download the Llama 3.1 8B model (approximately 4.7GB). The model is stored in a Docker volume and persists across container restarts.
-
-**Note:** The backend service waits for Ollama to be healthy before starting (see `depends_on` in docker-compose.yml).
-
-### 5. Access the Application
-
-Once the containers are running and the model is pulled:
-
-- **Frontend**: http://localhost:8080
-- **Backend API**: http://localhost:8000
-- **API Docs (Swagger)**: http://localhost:8000/docs
-- **API Health Check**: http://localhost:8000/api/health
-- **Ollama API**: http://localhost:11434
-
-## 🔄 Development Workflow
-
-### Hot Reload / Live Updates
-
-Both services are configured for **hot reload** during development:
-
-#### Backend (FastAPI)
-- Source code is mounted as a volume: `./backend/app` → `/app/app`
-- Uvicorn runs with the `--reload` flag
-- **Any changes to Python files will automatically restart the server**
-
-#### Frontend (HTML/CSS/JS)
-- Files are mounted as a volume: `./frontend` → `/usr/share/nginx/html`
-- Nginx serves files with cache disabled
-- **Refresh your browser to see changes immediately**
-
-### Making Changes
-
-1. Edit files in `backend/app/` or `frontend/` directories
-2. Changes are reflected automatically:
-   - Backend: Wait ~2-3 seconds for auto-reload
-   - Frontend: Refresh browser (F5 or Cmd+R)
-
-### Useful Commands
-
-```bash
-# View logs
-docker compose logs -f
-
-# View logs for specific service
-docker compose logs -f backend
-docker compose logs -f frontend
-docker compose logs -f llm
-
-# Stop containers
-docker compose down
-
-# Stop and remove volumes (WARNING: deletes LLM models)
-docker compose down -v
-
-# Restart a specific service
-docker compose restart backend
-docker compose restart frontend
-docker compose restart llm
-
-# Execute commands in running containers
-docker compose exec backend bash
-docker compose exec frontend sh
-docker exec -it web-agent-ollama bash
-
-# Ollama-specific commands
-docker exec -it web-agent-ollama ollama list               # List downloaded models
-docker exec -it web-agent-ollama ollama pull llama3.1:8b   # Pull a model
-docker exec -it web-agent-ollama ollama rm llama3.1:8b     # Remove a model
-docker exec -it web-agent-ollama ollama run llama3.1:8b    # Interactive chat
-
-# View running containers
-docker ps
-```
-
-## 🧪 Testing the Setup
-
-### Test Backend
-
-```bash
-# Health check
-curl http://localhost:8000/api/health
-
-# Root endpoint
-curl http://localhost:8000/
-
-# Or visit in browser
-open http://localhost:8000/docs
-```
-
-### Test Frontend
-
-Open http://localhost:8080 in your browser. You should see a welcome page with:
-- Site header
-- Welcome message
-- Backend health check logged in browser console (F12)
+A modern web agent application using LibreChat as the frontend, OpenRouter for LLM access, and Model Context Protocol (MCP) for tool integration.
 
 ## 🏗️ Architecture
 
-### Backend (FastAPI)
-- **Framework**: FastAPI with Uvicorn ASGI server
-- **Language**: Python 3.11
-- **Port**: 8000
-- **Features**:
-  - CORS middleware configured
-  - Health check endpoint
-  - Auto-reload for development
-  - Environment variable configuration
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│  LibreChat  │ ───────>│   Backend   │ ───────>│ MCP Server  │
+│  (Frontend) │         │ (Middleware)│         │   (Tools)   │
+└─────────────┘         └─────────────┘         └─────────────┘
+      │                        │                        │
+      │                        │                        │
+      v                        v                        v
+   MongoDB              OpenRouter API            FastMCP Tools
+  (Database)            (LLM Provider)            (Python)
+```
 
-### Frontend (Static)
-- **Server**: Nginx Alpine
-- **Stack**: Vanilla HTML, CSS, JavaScript
-- **Port**: 8080 (mapped to container port 80)
-- **Features**:
-  - Modern dark theme UI
-  - Responsive design
-  - No build step required
-  - Cache disabled for development
+### Components
 
-### LLM Service (Ollama)
-- **Image**: ollama/ollama:latest
-- **Model**: Llama 3.1 8B
-- **Port**: 11434
-- **Features**:
-  - Persistent model storage via Docker volume
-  - Health check ensures availability
-  - Backend depends on LLM service
-  - Pull models with: `docker exec -it web-agent-ollama ollama pull <model>`
+1. **LibreChat**: Modern chat interface (replaces custom frontend)
+2. **Backend**: FastAPI middleware that coordinates between LibreChat and MCP Server
+3. **MCP Server**: FastMCP-based server providing tools and capabilities
+4. **OpenRouter**: LLM provider supporting multiple models (Claude, GPT-4, Llama, etc.)
+5. **MongoDB**: Database for LibreChat
 
-### Docker Networking
-- Custom bridge network: `web-agent-network`
-- Services can communicate using service names
-- Frontend can reach backend at `http://backend:8000`
-- Backend can reach Ollama at `http://llm:11434`
+## 🚀 Quick Start
 
-## 📝 API Endpoints
+### Prerequisites
 
-### Available Endpoints
+- Docker and Docker Compose
+- OpenRouter API key (get one at [openrouter.ai](https://openrouter.ai))
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/` | Root endpoint with API info |
-| `GET` | `/api/health` | Health check endpoint |
-| `GET` | `/docs` | Interactive API documentation (Swagger) |
-| `GET` | `/redoc` | Alternative API documentation (ReDoc) |
+### Setup
 
-## 🔒 Environment Variables Best Practices
+1. **Clone the repository**
+   ```bash
+   git clone <your-repo-url>
+   cd Web-Agent
+   ```
 
-- ✅ **DO**: Keep `.env` file in `.gitignore`
-- ✅ **DO**: Use `.env.example` as a template
-- ✅ **DO**: Document all environment variables
-- ❌ **DON'T**: Commit `.env` files to version control
-- ❌ **DON'T**: Store secrets in Dockerfiles
+2. **Configure environment variables**
+   ```bash
+   cp env.template .env
+   ```
+   
+   Edit `.env` and set:
+   - `OPENROUTER_API_KEY`: Your OpenRouter API key
+   - `JWT_SECRET`: A secure random string
+   - `JWT_REFRESH_SECRET`: Another secure random string
+
+3. **Start the services**
+   ```bash
+   docker-compose -f dev.yaml up -d
+   ```
+
+4. **Access LibreChat**
+   Open your browser and navigate to: `http://localhost:3080`
+
+5. **Create an account**
+   - Register a new account in LibreChat
+   - Start chatting!
+
+## 📦 Services
+
+### LibreChat (Port 3080)
+- Web interface for chat
+- Supports multiple models via OpenRouter
+- File uploads and rich messaging
+
+### Backend (Port 8000)
+- FastAPI middleware
+- Coordinates LLM requests and tool calls
+- API documentation: `http://localhost:8000/docs`
+
+### MCP Server (Port 8001)
+- FastMCP-based tool server
+- Provides utilities like:
+  - Current time
+  - Calculator
+  - Web search (placeholder)
+  - Weather info (placeholder)
+  - Task management
+  - Text analysis
+
+### MongoDB (Port 27017)
+- Database for LibreChat
+- Stores conversations and user data
+
+## 🛠️ Available MCP Tools
+
+The MCP server provides the following tools to the LLM:
+
+1. **get_current_time**: Get current date and time
+2. **calculate**: Perform mathematical calculations
+3. **search_web**: Search the web (placeholder - integrate with real API)
+4. **get_weather**: Get weather information (placeholder - integrate with real API)
+5. **create_task**: Create and manage tasks
+6. **analyze_text**: Analyze text for sentiment, keywords, or summary
+
+## 🔧 Development
+
+### Project Structure
+
+```
+Web-Agent/
+├── backend/              # FastAPI backend middleware
+│   ├── app/
+│   │   ├── main.py              # Main FastAPI app
+│   │   ├── openrouter_service.py # OpenRouter client
+│   │   ├── mcp_client.py        # MCP client
+│   │   └── __init__.py
+│   ├── Dockerfile
+│   └── requirements.txt
+├── mcp-server/           # FastMCP tool server
+│   ├── server.py         # MCP server implementation
+│   ├── Dockerfile
+│   └── requirements.txt
+├── librechat.yaml        # LibreChat configuration
+├── dev.yaml              # Docker Compose configuration
+├── env.template          # Environment variables template
+└── README.md             # This file
+```
+
+### Running in Development Mode
+
+To run services with hot-reload:
+
+```bash
+docker-compose -f dev.yaml up
+```
+
+Watch logs for a specific service:
+
+```bash
+docker-compose -f dev.yaml logs -f backend
+docker-compose -f dev.yaml logs -f mcp-server
+```
+
+### Adding New MCP Tools
+
+1. Edit `mcp-server/server.py`
+2. Add a new tool using the `@mcp.tool()` decorator:
+
+```python
+@mcp.tool()
+def my_new_tool(param: str) -> Dict[str, Any]:
+    """
+    Description of your tool
+    
+    Args:
+        param: Description of parameter
+    
+    Returns:
+        Result dictionary
+    """
+    # Your implementation
+    return {"result": "success"}
+```
+
+3. Restart the MCP server:
+   ```bash
+   docker-compose -f dev.yaml restart mcp-server
+   ```
+
+## 🌐 Supported Models (via OpenRouter)
+
+The system supports any model available on OpenRouter, including:
+
+- **Anthropic**: Claude 3.5 Sonnet, Claude 3 Opus, Claude 3 Haiku
+- **OpenAI**: GPT-4 Turbo, GPT-4, GPT-3.5 Turbo
+- **Meta**: Llama 3.1 (8B, 70B, 405B)
+- **Google**: Gemini Pro, Gemini Pro Vision
+- **Mistral**: Mistral Large, Mistral Medium
+
+Configure your preferred models in `librechat.yaml`.
+
+## 🔐 Security
+
+- Change all default secrets in `.env` before production deployment
+- Never commit `.env` file to version control
+- Use strong JWT secrets
+- Restrict CORS origins in production
+- Keep OpenRouter API key secure
+
+## 📚 API Documentation
+
+### Backend API
+
+Once running, visit `http://localhost:8000/docs` for interactive API documentation.
+
+Key endpoints:
+- `GET /api/health` - Health check
+- `GET /api/services/health` - Check all services health
+- `POST /api/chat/messages` - Create a new chat message
+- `GET /api/chat/messages/{id}/events` - Stream chat events (SSE)
+- `GET /api/mcp/tools` - List available MCP tools
+- `POST /api/mcp/tools/call` - Call an MCP tool directly
 
 ## 🐛 Troubleshooting
 
-### Port Already in Use
-
-If ports 8000 or 8080 are already in use:
-
+### Services won't start
 ```bash
-# Check what's using the port (macOS/Linux)
-lsof -i :8000
-lsof -i :8080
-
-# Kill the process or change ports in docker-compose.yml
-# Example: Change "8000:8000" to "8001:8000"
+docker-compose -f dev.yaml down -v
+docker-compose -f dev.yaml up --build
 ```
 
-### Container Won't Start
+### Can't connect to OpenRouter
+- Check your `OPENROUTER_API_KEY` in `.env`
+- Verify your account has credits at openrouter.ai
 
+### MCP tools not working
 ```bash
-# Check logs for errors
-docker compose logs backend
-docker compose logs frontend
-
-# Rebuild from scratch
-docker compose down
-docker compose build --no-cache
-docker compose up
+docker-compose -f dev.yaml logs mcp-server
 ```
 
-### Backend Not Reloading
-
+### LibreChat database issues
 ```bash
-# Ensure volume is mounted correctly
-docker compose down
-docker compose up --build
-
-# Check if changes are visible in container
-docker compose exec backend ls -la /app/app
+docker-compose -f dev.yaml down mongodb
+docker volume rm web-agent_mongodb-data
+docker-compose -f dev.yaml up -d mongodb
 ```
 
-### CORS Errors
+## 📝 License
 
-Check your `.env` file and ensure `CORS_ALLOW_ORIGINS` includes your frontend URL:
-```bash
-CORS_ALLOW_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
-```
+[Your License Here]
 
-### Ollama Model Issues
+## 🤝 Contributing
 
-```bash
-# Check if model is downloaded
-docker exec -it web-agent-ollama ollama list
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-# Check Ollama logs
-docker compose logs llm
+## 📧 Support
 
-# Re-pull the model
-docker exec -it web-agent-ollama ollama pull llama3.1:8b
-
-# Test Ollama directly
-curl http://localhost:11434/api/version
-```
-
-## 🛠️ Development Helper Script
-
-A convenient helper script (`dev.sh`) is provided for common tasks:
-
-```bash
-# View all commands
-./dev.sh help
-
-# Common operations
-./dev.sh start      # Start all services
-./dev.sh stop       # Stop all services
-./dev.sh logs       # View logs (all services)
-./dev.sh logs-be    # View backend logs only
-./dev.sh logs-fe    # View frontend logs only
-./dev.sh restart    # Restart services
-./dev.sh rebuild    # Full rebuild
-./dev.sh test       # Test endpoints
-./dev.sh status     # Container status
-./dev.sh clean      # Clean up containers & volumes
-./dev.sh shell-be   # Backend container shell
-./dev.sh shell-fe   # Frontend container shell
-```
-
-## 🚧 Next Steps
-
-This is a blank starter template. To add the chat functionality:
-
-1. **Backend**: Add chat endpoints in `backend/app/main.py`
-2. **Frontend**: Implement chat UI in `frontend/index.html`
-3. **Styling**: Enhance the design in `frontend/styles.css`
-4. **Logic**: Add chat logic in `frontend/app.js`
-
-## 📖 Documentation
-
-- **Getting Started**: [GETTING_STARTED.md](./GETTING_STARTED.md) - Complete setup guide
-- **This File**: Overview and reference
-
-## 📚 Additional Resources
-
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [Docker Documentation](https://docs.docker.com/)
-- [Docker Compose Documentation](https://docs.docker.com/compose/)
-- [Nginx Documentation](https://nginx.org/en/docs/)
-
-## 📄 License
-
-This project is for development purposes.
-
----
-
-**Happy Coding! 🎉**
+For issues and questions, please open an issue on GitHub.

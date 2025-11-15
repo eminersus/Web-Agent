@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  # LibreChat Frontend and API
+  librechat:
+    image: ghcr.io/danny-avila/librechat:latest
+    container_name: web-agent-librechat
+    ports:
+      - "3080:3080"
+    env_file:
+      - .env
+    environment:
+      - HOST=0.0.0.0
+      - PORT=3080
+      - MONGO_URI=mongodb://mongodb:27017/LibreChat
+      # Registration and Authentication
+      - ALLOW_REGISTRATION=true
+      - ALLOW_EMAIL_LOGIN=true
+      - ALLOW_UNVERIFIED_EMAIL=true
+      - ALLOW_SOCIAL_LOGIN=false
+      - ALLOW_SOCIAL_REGISTRATION=false
+      - EMAIL_FROM_NAME=Web Agent
+      - EMAIL_FROM=noreply@localhost
+      # OpenRouter Configuration
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - APP_URL=${APP_URL:-http://localhost:3080}
+      # Session and Security
+      - SESSION_EXPIRY=${SESSION_EXPIRY:-900000}
+      - REFRESH_TOKEN_EXPIRY=${REFRESH_TOKEN_EXPIRY:-604800000}
+      - JWT_SECRET=${JWT_SECRET:-your_jwt_secret_change_this}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET:-your_jwt_refresh_secret_change_this}
+      # Backend API endpoint
+      - BACKEND_API_URL=http://backend:8000
+      # MCP Server endpoint
+      - MCP_SERVER_URL=http://mcp-server:8001
+    volumes:
+      - ./librechat.yaml:/app/librechat.yaml:ro
+      - librechat-data:/app/api/data
+      - librechat-images:/app/client/public/images
+      - librechat-logs:/app/api/logs
+    depends_on:
+      - mongodb
+      - backend
+      - mcp-server
+    restart: unless-stopped
+    networks:
+      - web-agent-network
+
+  # Backend API (Middleware between LibreChat and MCP)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: web-agent-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - UVICORN_HOST=0.0.0.0
+      - UVICORN_PORT=8000
+      - CORS_ALLOW_ORIGINS=*
+      - ENVIRONMENT=development
+      - DEBUG=true
+      # MCP Server configuration
+      - MCP_SERVER_URL=http://mcp-server:8001
+      # OpenRouter configuration
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+    volumes:
+      - ./backend/app:/app/app:ro
+    depends_on:
+      - mcp-server
+    restart: unless-stopped
+    networks:
+      - web-agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MCP Server (FastMCP Python)
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: web-agent-mcp-server
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      - MCP_SERVER_NAME=Web-Agent-MCP-Server
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./mcp-server:/app:ro
+    restart: unless-stopped
+    networks:
+      - web-agent-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # MongoDB for LibreChat
+  mongodb:
+    image: mongo:latest
+    container_name: web-agent-mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb-data:/data/db
+    restart: unless-stopped
+    networks:
+      - web-agent-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  mongodb-data:
+  librechat-data:
+  librechat-images:
+  librechat-logs:
+
+networks:
+  web-agent-network:
+    driver: bridge
+

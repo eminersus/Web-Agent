@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Web Agent Development Helper Script
-# This script provides convenient commands for development
+# Web Agent Development Script
+# Provides convenient commands for managing the development environment
 
 set -e
 
@@ -12,223 +12,283 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# Function to print colored output
-print_info() {
-    echo -e "${BLUE}ℹ ${1}${NC}"
+# Functions
+print_header() {
+    echo -e "${BLUE}========================================${NC}"
+    echo -e "${BLUE}$1${NC}"
+    echo -e "${BLUE}========================================${NC}"
 }
 
 print_success() {
-    echo -e "${GREEN}✓ ${1}${NC}"
-}
-
-print_warning() {
-    echo -e "${YELLOW}⚠ ${1}${NC}"
+    echo -e "${GREEN}✓ $1${NC}"
 }
 
 print_error() {
-    echo -e "${RED}✗ ${1}${NC}"
+    echo -e "${RED}✗ $1${NC}"
 }
 
-# Function to check if Docker is running
-check_docker() {
-    if ! docker info > /dev/null 2>&1; then
-        print_error "Docker is not running. Please start Docker Desktop."
+print_warning() {
+    echo -e "${YELLOW}⚠ $1${NC}"
+}
+
+print_info() {
+    echo -e "${BLUE}ℹ $1${NC}"
+}
+
+# Check if .env exists
+check_env() {
+    if [ ! -f .env ]; then
+        print_error ".env file not found!"
+        print_info "Copying env.template to .env..."
+        cp env.template .env
+        print_warning "Please edit .env and add your OPENROUTER_API_KEY and other secrets"
+        print_info "Generate secrets with: openssl rand -hex 32"
         exit 1
     fi
 }
 
-# Function to display help
-show_help() {
+# Command functions
+cmd_start() {
+    print_header "Starting Web Agent Services"
+    check_env
+    docker-compose -f dev.yaml up -d
+    print_success "Services started"
+    print_info "LibreChat: http://localhost:3080"
+    print_info "Backend API: http://localhost:8000"
+    print_info "Backend Docs: http://localhost:8000/docs"
+    print_info "MCP Server: http://localhost:8001"
+}
+
+cmd_stop() {
+    print_header "Stopping Web Agent Services"
+    docker-compose -f dev.yaml down
+    print_success "Services stopped"
+}
+
+cmd_restart() {
+    print_header "Restarting Web Agent Services"
+    docker-compose -f dev.yaml restart
+    print_success "Services restarted"
+}
+
+cmd_rebuild() {
+    print_header "Rebuilding and Restarting Services"
+    docker-compose -f dev.yaml down
+    docker-compose -f dev.yaml up --build -d
+    print_success "Services rebuilt and started"
+}
+
+cmd_logs() {
+    if [ -z "$1" ]; then
+        print_header "Showing All Logs (Ctrl+C to exit)"
+        docker-compose -f dev.yaml logs -f
+    else
+        print_header "Showing Logs for: $1"
+        docker-compose -f dev.yaml logs -f "$1"
+    fi
+}
+
+cmd_status() {
+    print_header "Service Status"
+    docker-compose -f dev.yaml ps
     echo ""
-    echo "Web Agent Development Helper"
-    echo ""
-    echo "Usage: ./dev.sh [command]"
-    echo ""
-    echo "Commands:"
-    echo "  start        - Start all services (build if needed)"
-    echo "  stop         - Stop all services"
-    echo "  restart      - Restart all services"
-    echo "  rebuild      - Rebuild and restart all services"
-    echo "  logs         - Show logs (all services)"
-    echo "  logs-be      - Show backend logs only"
-    echo "  logs-fe      - Show frontend logs only"
-    echo "  status       - Show running containers"
-    echo "  test         - Test backend and frontend endpoints"
-    echo "  clean        - Stop and remove containers, volumes"
-    echo "  shell-be     - Open bash in backend container"
-    echo "  shell-fe     - Open shell in frontend container"
-    echo "  help         - Show this help message"
-    echo ""
-}
-
-# Start services
-start_services() {
-    check_docker
-    print_info "Starting services..."
-    docker compose up --build -d
-    print_success "Services started!"
-    print_info "Backend: http://localhost:8000"
-    print_info "Frontend: http://localhost:8080"
-    print_info "API Docs: http://localhost:8000/docs"
-}
-
-# Stop services
-stop_services() {
-    print_info "Stopping services..."
-    docker compose down
-    print_success "Services stopped!"
-}
-
-# Restart services
-restart_services() {
-    print_info "Restarting services..."
-    docker compose restart
-    print_success "Services restarted!"
-}
-
-# Rebuild services
-rebuild_services() {
-    check_docker
-    print_info "Rebuilding services..."
-    docker compose down
-    docker compose build --no-cache
-    docker compose up -d
-    print_success "Services rebuilt and started!"
-}
-
-# Show logs
-show_logs() {
-    print_info "Showing logs (Ctrl+C to exit)..."
-    docker compose logs -f
-}
-
-# Show backend logs
-show_logs_backend() {
-    print_info "Showing backend logs (Ctrl+C to exit)..."
-    docker compose logs -f backend
-}
-
-# Show frontend logs
-show_logs_frontend() {
-    print_info "Showing frontend logs (Ctrl+C to exit)..."
-    docker compose logs -f frontend
-}
-
-# Show status
-show_status() {
-    print_info "Container status:"
-    docker compose ps
-    echo ""
-    print_info "Resource usage:"
-    docker stats --no-stream web-agent-backend web-agent-frontend 2>/dev/null || print_warning "Containers not running"
-}
-
-# Test endpoints
-test_endpoints() {
-    print_info "Testing endpoints..."
+    print_info "Checking service health..."
     echo ""
     
-    # Test backend health
-    print_info "Testing backend health endpoint..."
-    if curl -s -f http://localhost:8000/api/health > /dev/null 2>&1; then
-        print_success "Backend health: OK"
-        curl -s http://localhost:8000/api/health | python3 -m json.tool
+    # Check backend health
+    if curl -s http://localhost:8000/api/health > /dev/null 2>&1; then
+        print_success "Backend is healthy"
     else
-        print_error "Backend health: FAILED"
+        print_error "Backend is not responding"
     fi
-    echo ""
     
-    # Test backend root
-    print_info "Testing backend root endpoint..."
-    if curl -s -f http://localhost:8000/ > /dev/null 2>&1; then
-        print_success "Backend root: OK"
-        curl -s http://localhost:8000/ | python3 -m json.tool
-    else
-        print_error "Backend root: FAILED"
+    # Check services health
+    if curl -s http://localhost:8000/api/services/health > /dev/null 2>&1; then
+        echo ""
+        print_info "Detailed service health:"
+        curl -s http://localhost:8000/api/services/health | python3 -m json.tool
     fi
-    echo ""
-    
-    # Test frontend
-    print_info "Testing frontend..."
-    if curl -s -f http://localhost:8080/ > /dev/null 2>&1; then
-        print_success "Frontend: OK (http://localhost:8080)"
-    else
-        print_error "Frontend: FAILED"
-    fi
-    echo ""
 }
 
-# Clean up
-clean_up() {
-    print_warning "This will stop and remove all containers and volumes."
+cmd_clean() {
+    print_header "Cleaning Up"
+    print_warning "This will remove all containers, volumes, and images"
     read -p "Are you sure? (y/N) " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        print_info "Cleaning up..."
-        docker compose down -v
-        print_success "Cleanup complete!"
+        docker-compose -f dev.yaml down -v --rmi all
+        print_success "Cleanup complete"
     else
-        print_info "Cleanup cancelled."
+        print_info "Cleanup cancelled"
     fi
 }
 
-# Open backend shell
-backend_shell() {
-    print_info "Opening backend shell..."
-    docker compose exec backend bash
+cmd_reset_db() {
+    print_header "Resetting Database"
+    print_warning "This will delete all user data and conversations"
+    read -p "Are you sure? (y/N) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        docker-compose -f dev.yaml down mongodb
+        docker volume rm web-agent_mongodb-data 2>/dev/null || true
+        docker-compose -f dev.yaml up -d mongodb
+        print_success "Database reset complete"
+        print_info "Waiting for MongoDB to initialize..."
+        sleep 5
+        docker-compose -f dev.yaml restart librechat
+        print_success "LibreChat restarted"
+    else
+        print_info "Reset cancelled"
+    fi
 }
 
-# Open frontend shell
-frontend_shell() {
-    print_info "Opening frontend shell..."
-    docker compose exec frontend sh
+cmd_shell() {
+    service=${1:-backend}
+    print_header "Opening shell in: $service"
+    docker-compose -f dev.yaml exec "$service" /bin/sh
 }
 
-# Main script logic
-case "${1:-help}" in
+cmd_health() {
+    print_header "Health Check"
+    
+    echo "Backend:"
+    curl -s http://localhost:8000/api/health | python3 -m json.tool || print_error "Backend not responding"
+    
+    echo ""
+    echo "All Services:"
+    curl -s http://localhost:8000/api/services/health | python3 -m json.tool || print_error "Cannot get services health"
+    
+    echo ""
+    echo "MCP Tools:"
+    curl -s http://localhost:8000/api/mcp/tools | python3 -m json.tool || print_error "Cannot get MCP tools"
+}
+
+cmd_test_mcp() {
+    print_header "Testing MCP Tool: get_current_time"
+    curl -X POST http://localhost:8000/api/mcp/tools/call \
+        -H "Content-Type: application/json" \
+        -d '{"tool_name": "get_current_time", "arguments": {}}' | python3 -m json.tool
+}
+
+cmd_setup() {
+    print_header "Initial Setup"
+    
+    # Check Docker
+    if ! command -v docker &> /dev/null; then
+        print_error "Docker not found. Please install Docker Desktop."
+        exit 1
+    fi
+    print_success "Docker found"
+    
+    # Check .env
+    if [ ! -f .env ]; then
+        print_info "Creating .env from template..."
+        cp env.template .env
+        print_warning "Please edit .env and add your secrets:"
+        print_info "  - OPENROUTER_API_KEY (get from https://openrouter.ai/keys)"
+        print_info "  - JWT_SECRET (generate with: openssl rand -hex 32)"
+        print_info "  - JWT_REFRESH_SECRET (generate with: openssl rand -hex 32)"
+        exit 0
+    fi
+    print_success ".env file exists"
+    
+    # Check for API key
+    if grep -q "your_openrouter_api_key_here" .env; then
+        print_error "Please set your OPENROUTER_API_KEY in .env"
+        exit 1
+    fi
+    print_success "OPENROUTER_API_KEY is set"
+    
+    # Start services
+    print_info "Starting services..."
+    cmd_start
+    
+    print_success "Setup complete!"
+    print_info "Access LibreChat at: http://localhost:3080"
+}
+
+cmd_help() {
+    cat << EOF
+Web Agent Development Script
+
+Usage: ./dev.sh [command] [options]
+
+Commands:
+    setup           Initial setup (create .env and start services)
+    start           Start all services
+    stop            Stop all services
+    restart         Restart all services
+    rebuild         Rebuild and restart all services
+    logs [service]  Show logs (all or specific service)
+    status          Show service status and health
+    health          Detailed health check of all services
+    shell [service] Open shell in service container (default: backend)
+    clean           Remove all containers, volumes, and images
+    reset-db        Reset MongoDB database
+    test-mcp        Test MCP server with a simple tool call
+    help            Show this help message
+
+Services:
+    librechat       LibreChat frontend (port 3080)
+    backend         Backend API (port 8000)
+    mcp-server      MCP tool server (port 8001)
+    mongodb         MongoDB database (port 27017)
+
+Examples:
+    ./dev.sh start              # Start all services
+    ./dev.sh logs backend       # Show backend logs
+    ./dev.sh shell mcp-server   # Open shell in MCP server
+    ./dev.sh health             # Check all services health
+    ./dev.sh test-mcp           # Test MCP server
+
+EOF
+}
+
+# Main command dispatcher
+case "$1" in
+    setup)
+        cmd_setup
+        ;;
     start)
-        start_services
+        cmd_start
         ;;
     stop)
-        stop_services
+        cmd_stop
         ;;
     restart)
-        restart_services
+        cmd_restart
         ;;
     rebuild)
-        rebuild_services
+        cmd_rebuild
         ;;
     logs)
-        show_logs
-        ;;
-    logs-be)
-        show_logs_backend
-        ;;
-    logs-fe)
-        show_logs_frontend
+        cmd_logs "$2"
         ;;
     status)
-        show_status
+        cmd_status
         ;;
-    test)
-        test_endpoints
+    health)
+        cmd_health
         ;;
     clean)
-        clean_up
+        cmd_clean
         ;;
-    shell-be)
-        backend_shell
+    reset-db)
+        cmd_reset_db
         ;;
-    shell-fe)
-        frontend_shell
+    shell)
+        cmd_shell "$2"
         ;;
-    help|--help|-h)
-        show_help
+    test-mcp)
+        cmd_test_mcp
+        ;;
+    help|--help|-h|"")
+        cmd_help
         ;;
     *)
-        print_error "Unknown command: ${1}"
-        show_help
+        print_error "Unknown command: $1"
+        echo ""
+        cmd_help
         exit 1
         ;;
 esac
-

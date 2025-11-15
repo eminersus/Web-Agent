@@ -1,374 +1,302 @@
-# Getting Started
+# Getting Started with Web Agent
 
-Get your Web Agent development environment up and running.
+This guide will help you set up and run the Web Agent application with LibreChat, OpenRouter, and MCP Server.
 
-## Prerequisites
+## 📋 Prerequisites
 
-- Docker Desktop installed and running
-- Terminal/Command line access
+Before you begin, ensure you have:
 
-**Verify installation:**
+1. **Docker Desktop** installed and running
+   - Download from: https://www.docker.com/products/docker-desktop/
+   - Minimum 8GB RAM allocated to Docker
+   - 20GB free disk space
+
+2. **OpenRouter API Key**
+   - Sign up at: https://openrouter.ai
+   - Navigate to: https://openrouter.ai/keys
+   - Create a new API key
+   - Add credits to your account (pay-as-you-go)
+
+## 🚀 Setup Steps
+
+### Step 1: Configure Environment
+
+1. Copy the environment template:
+   ```bash
+   cp env.template .env
+   ```
+
+2. Edit `.env` and update the following **required** values:
+   ```bash
+   # Required: Your OpenRouter API key
+   OPENROUTER_API_KEY=sk-or-v1-your-key-here
+   
+   # Required: Generate secure random strings (use `openssl rand -hex 32`)
+   JWT_SECRET=<generate-random-string>
+   JWT_REFRESH_SECRET=<generate-random-string>
+   ```
+
+   **Generate secure secrets:**
+   ```bash
+   # On macOS/Linux:
+   openssl rand -hex 32
+   
+   # Or use Python:
+   python3 -c "import secrets; print(secrets.token_hex(32))"
+   ```
+
+### Step 2: Start the Services
+
+Start all services using Docker Compose:
+
 ```bash
-docker --version        # Should be 20.10.x or higher
-docker compose version  # Should be 2.x.x or higher
+docker-compose -f dev.yaml up -d
 ```
 
-**Don't have Docker?** Install [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+This will start:
+- LibreChat (frontend) on port 3080
+- Backend (middleware) on port 8000
+- MCP Server (tools) on port 8001
+- MongoDB on port 27017
 
-## Quick Start
+### Step 3: Wait for Services to Initialize
+
+Check if all services are running:
 
 ```bash
-cd /Users/emin/Desktop/Web-Agent
-./dev.sh start
+docker-compose -f dev.yaml ps
 ```
 
-Open http://localhost:8080 — Done! 🎉
+Check logs to ensure everything started correctly:
 
-## Setup Steps
-
-### 1. Navigate to Project
 ```bash
-cd /Users/emin/Desktop/Web-Agent
+# Check backend logs
+docker-compose -f dev.yaml logs backend
+
+# Check MCP server logs
+docker-compose -f dev.yaml logs mcp-server
+
+# Check LibreChat logs
+docker-compose -f dev.yaml logs librechat
 ```
 
-### 2. Verify Environment Variables
+### Step 4: Access LibreChat
 
-Check your `.env` file exists:
-```bash
-cat .env
-```
+1. Open your browser and navigate to: **http://localhost:3080**
 
-If missing, create from template:
-```bash
-cp env.template .env
-```
+2. You'll see the LibreChat registration page
 
-### 3. Start Services
+3. Create a new account:
+   - Enter your email (doesn't need to be real for local development)
+   - Choose a username
+   - Create a secure password
+   - Click "Submit"
 
-**Using helper script (recommended):**
-```bash
-./dev.sh start
-```
+4. Log in with your credentials
 
-**Using Docker Compose:**
-```bash
-docker compose up --build -d
-```
+### Step 5: Start Chatting!
 
-### 4. Pull the LLM Model
+1. Select the **OpenRouter** endpoint from the dropdown
 
-After the services are running, download the Llama 3.1 model:
+2. Choose a model (e.g., Claude 3.5 Sonnet, GPT-4, Llama 3.1)
 
-```bash
-docker exec -it web-agent-ollama ollama pull llama3.1:8b
-```
+3. Start a conversation!
 
-**What this does:**
-- Downloads Llama 3.1 8B model (~4.7GB)
-- Stores it in a persistent Docker volume
-- Model remains available even after container restarts
+4. Try using MCP tools by asking questions like:
+   - "What time is it?"
+   - "Calculate 123 * 456"
+   - "Create a task to review the documentation"
 
-**Note:** This step is required before the chat agent can generate responses. The backend waits for Ollama to be healthy before starting.
+## 🔍 Verifying the Setup
 
-### 5. Verify Setup
+### Check Backend Health
 
 ```bash
-# Check running containers
-docker ps
-
-# Test endpoints
-./dev.sh test
-
-# Or test manually
 curl http://localhost:8000/api/health
 ```
 
-## Access URLs
-
-| Service | URL |
-|---------|-----|
-| Frontend | http://localhost:8080 |
-| Backend API | http://localhost:8000 |
-| API Docs | http://localhost:8000/docs |
-| Health Check | http://localhost:8000/api/health |
-| Ollama LLM | http://localhost:11434 |
-
-## Development Commands
-
-### Helper Script Commands
-
-```bash
-./dev.sh help       # Show all commands
-./dev.sh start      # Start services
-./dev.sh stop       # Stop services
-./dev.sh restart    # Restart services
-./dev.sh rebuild    # Full rebuild
-./dev.sh logs       # View all logs
-./dev.sh logs-be    # Backend logs only
-./dev.sh logs-fe    # Frontend logs only
-./dev.sh status     # Container status
-./dev.sh test       # Test endpoints
-./dev.sh clean      # Clean up
-./dev.sh shell-be   # Backend shell
-./dev.sh shell-fe   # Frontend shell
-
-# Ollama-specific commands
-docker exec -it web-agent-ollama ollama list               # List models
-docker exec -it web-agent-ollama ollama pull llama3.1:8b   # Pull model
-docker exec -it web-agent-ollama ollama run llama3.1:8b    # Test model
-```
-
-### Docker Compose Commands
-
-```bash
-docker compose up -d              # Start in background
-docker compose up --build         # Build and start
-docker compose down               # Stop all services
-docker compose down -v            # Stop and remove volumes (WARNING: deletes models)
-docker compose logs -f            # Follow logs
-docker compose logs -f backend    # Backend logs only
-docker compose logs -f llm        # Ollama logs only
-docker compose restart            # Restart all
-docker compose restart backend    # Restart backend only
-docker compose restart llm        # Restart Ollama only
-docker compose ps                 # List containers
-docker compose exec backend bash  # Backend shell
-docker exec -it web-agent-ollama bash  # Ollama shell
-```
-
-## Making Changes
-
-### Backend (Hot Reload Enabled)
-1. Edit `backend/app/main.py`
-2. Save file
-3. Wait 2-3 seconds — auto-reloads ✨
-
-**Example:**
-```python
-@app.get("/api/hello")
-def hello(name: str = "World"):
-    return {"message": f"Hello, {name}!"}
-```
-
-Test: `curl http://localhost:8000/api/hello?name=Dev`
-
-### Frontend (Live Reload)
-1. Edit `frontend/index.html`, `styles.css`, or `app.js`
-2. Save file
-3. Refresh browser (F5) — changes appear ✨
-
-**Example:**
-```html
-<h2>My Chat Interface</h2>
-```
-
-## Environment Variables
-
-Located in `.env` file:
-```bash
-UVICORN_HOST=0.0.0.0
-UVICORN_PORT=8000
-CORS_ALLOW_ORIGINS=http://localhost:8080,http://127.0.0.1:8080,http://frontend:80
-ENVIRONMENT=development
-DEBUG=true
-```
-
-To modify, edit `.env` and restart services:
-```bash
-./dev.sh restart
-```
-
-## Troubleshooting
-
-### Port Already in Use
-
-```bash
-# Find process using the port
-lsof -i :8000
-lsof -i :8080
-
-# Kill the process
-kill -9 <PID>
-
-# Or change ports in docker-compose.yml
-# "8001:8000" instead of "8000:8000"
-```
-
-### Docker Not Running
-
-```bash
-# Check Docker status
-docker info
-
-# If error: Start Docker Desktop application
-```
-
-### Containers Won't Start
-
-```bash
-# View logs for errors
-./dev.sh logs
-
-# Try complete rebuild
-./dev.sh rebuild
-```
-
-### Changes Not Appearing
-
-**Backend:**
-```bash
-# Check logs for reload confirmation
-./dev.sh logs-be
-# Should see: "Reloading..."
-```
-
-**Frontend:**
-```bash
-# Hard refresh browser
-# Mac: Cmd + Shift + R
-# Windows/Linux: Ctrl + Shift + R
-```
-
-### Services Not Accessible
-
-```bash
-# Check container status
-./dev.sh status
-
-# Restart services
-./dev.sh restart
-
-# Clean restart
-./dev.sh clean  # Confirm prompt
-./dev.sh start
-```
-
-### View Detailed Logs
-
-```bash
-# All services
-./dev.sh logs
-
-# Specific service
-docker compose logs backend
-docker compose logs frontend
-docker compose logs llm
-
-# Follow live logs
-docker compose logs -f backend
-docker compose logs -f llm
-```
-
-### LLM/Model Issues
-
-```bash
-# Check if model is downloaded
-docker exec -it web-agent-ollama ollama list
-
-# Pull the model (if missing)
-docker exec -it web-agent-ollama ollama pull llama3.1:8b
-
-# Test the model interactively
-docker exec -it web-agent-ollama ollama run llama3.1:8b
-
-# Check Ollama is responding
-curl http://localhost:11434/api/version
-```
-
-## Daily Workflow
-
-**Start your day:**
-```bash
-./dev.sh start
-```
-
-**Make changes:**
-- Edit files in `backend/app/` or `frontend/`
-- Changes reload automatically
-
-**View logs:**
-```bash
-./dev.sh logs
-```
-
-**End your day:**
-```bash
-./dev.sh stop
-```
-
-## Testing
-
-**Run automated tests:**
-```bash
-./dev.sh test
-```
-
-**Manual testing:**
-```bash
-# Backend health
-curl http://localhost:8000/api/health
-
-# Backend root
-curl http://localhost:8000/
-
-# Frontend
-curl -I http://localhost:8080
-```
-
-**Browser testing:**
-1. Open http://localhost:8080
-2. Press F12 (DevTools)
-3. Check console for: `Backend health: {status: 'ok'}`
-
-## Next Steps
-
-**Explore the API:**
-- Visit http://localhost:8000/docs for interactive API documentation
-
-**Start building:**
-- Add chat endpoints in `backend/app/main.py`
-- Create chat UI in `frontend/index.html`
-- Style it in `frontend/styles.css`
-- Add logic in `frontend/app.js`
-
-**Example chat endpoint:**
-```python
-@app.post("/api/chat")
-def chat(message: str):
-    return {"response": f"You said: {message}"}
-```
-
-**Example frontend fetch:**
-```javascript
-async function sendMessage(message) {
-  const response = await fetch('http://localhost:8000/api/chat', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message })
-  });
-  return response.json();
+Expected response:
+```json
+{
+  "status": "ok",
+  "environment": "development"
 }
 ```
 
-## Quick Reference
+### Check All Services Health
 
-```
-┌──────────────────────────────────────────────────────┐
-│  Frontend:  http://localhost:8080                   │
-│  Backend:   http://localhost:8000                   │
-│  API Docs:  http://localhost:8000/docs              │
-│  Ollama:    http://localhost:11434                  │
-├──────────────────────────────────────────────────────┤
-│  Start:      ./dev.sh start                         │
-│  Stop:       ./dev.sh stop                          │
-│  Logs:       ./dev.sh logs                          │
-│  Test:       ./dev.sh test                          │
-├──────────────────────────────────────────────────────┤
-│  Pull Model: docker exec -it web-agent-ollama \     │
-│              ollama pull llama3.1:8b                │
-│  List Models: docker exec -it web-agent-ollama \    │
-│               ollama list                           │
-└──────────────────────────────────────────────────────┘
+```bash
+curl http://localhost:8000/api/services/health
 ```
 
-**You're ready to code! 🚀**
+Expected response:
+```json
+{
+  "backend": {"status": "healthy"},
+  "openrouter": {"status": "healthy"},
+  "mcp_server": {"status": "healthy"}
+}
+```
+
+### List Available MCP Tools
+
+```bash
+curl http://localhost:8000/api/mcp/tools
+```
+
+This should return a list of available tools from the MCP server.
+
+## 🛠️ Common Issues
+
+### Issue: Services won't start
+
+**Solution:** Clean up and rebuild
+
+```bash
+docker-compose -f dev.yaml down -v
+docker-compose -f dev.yaml up --build -d
+```
+
+### Issue: "OpenRouter service is unhealthy"
+
+**Possible causes:**
+1. Invalid API key
+2. No credits in OpenRouter account
+3. Network connectivity issues
+
+**Solution:**
+- Check your `.env` file for correct `OPENROUTER_API_KEY`
+- Verify your OpenRouter account has credits
+- Check Docker container logs: `docker-compose -f dev.yaml logs backend`
+
+### Issue: MongoDB connection errors
+
+**Solution:** Restart MongoDB with clean volumes
+
+```bash
+docker-compose -f dev.yaml down mongodb
+docker volume rm web-agent_mongodb-data
+docker-compose -f dev.yaml up -d mongodb
+```
+
+Wait for MongoDB to initialize, then restart other services:
+
+```bash
+docker-compose -f dev.yaml restart librechat
+```
+
+### Issue: "MCP Server is not responding"
+
+**Solution:** Check MCP server logs
+
+```bash
+docker-compose -f dev.yaml logs mcp-server
+```
+
+Restart MCP server:
+
+```bash
+docker-compose -f dev.yaml restart mcp-server
+```
+
+### Issue: Port already in use
+
+**Solution:** Change ports in `dev.yaml` or stop conflicting services
+
+Find what's using the port:
+```bash
+# On macOS/Linux:
+lsof -i :3080
+lsof -i :8000
+lsof -i :8001
+```
+
+## 📊 Monitoring
+
+### View logs in real-time
+
+```bash
+# All services
+docker-compose -f dev.yaml logs -f
+
+# Specific service
+docker-compose -f dev.yaml logs -f backend
+docker-compose -f dev.yaml logs -f mcp-server
+docker-compose -f dev.yaml logs -f librechat
+```
+
+### Check resource usage
+
+```bash
+docker stats
+```
+
+## 🔄 Updating the Application
+
+### Pull latest changes
+
+```bash
+git pull origin main
+```
+
+### Rebuild and restart services
+
+```bash
+docker-compose -f dev.yaml down
+docker-compose -f dev.yaml up --build -d
+```
+
+## 🧹 Cleaning Up
+
+### Stop all services
+
+```bash
+docker-compose -f dev.yaml down
+```
+
+### Remove all data (including database)
+
+```bash
+docker-compose -f dev.yaml down -v
+```
+
+### Remove Docker images
+
+```bash
+docker-compose -f dev.yaml down --rmi all
+```
+
+## 🎯 Next Steps
+
+1. **Customize MCP Tools**: Edit `mcp-server/server.py` to add your own tools
+2. **Configure Models**: Edit `librechat.yaml` to add or remove models
+3. **Integrate APIs**: Replace placeholder implementations in MCP tools with real APIs
+4. **Deploy to Production**: See deployment documentation
+
+## 📚 Additional Resources
+
+- [LibreChat Documentation](https://www.librechat.ai/docs)
+- [OpenRouter Documentation](https://openrouter.ai/docs)
+- [FastMCP Documentation](https://github.com/jlowin/fastmcp)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+
+## 💡 Tips
+
+- Start with the Claude 3.5 Sonnet model - it's powerful and cost-effective
+- Use the `temperature` parameter to control response creativity (0.0 = focused, 1.0 = creative)
+- Monitor your OpenRouter usage and costs at https://openrouter.ai/activity
+- Keep your `.env` file secure and never commit it to version control
+
+## 🆘 Getting Help
+
+If you encounter issues:
+
+1. Check the logs: `docker-compose -f dev.yaml logs`
+2. Verify your configuration in `.env`
+3. Review this guide's troubleshooting section
+4. Open an issue on GitHub with:
+   - Error messages
+   - Relevant logs
+   - Steps to reproduce
+
+Happy chatting! 🚀
