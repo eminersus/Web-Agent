@@ -55,7 +55,22 @@ cp env.template .env
 docker compose up --build -d
 ```
 
-### 4. Verify Setup
+### 4. Pull the LLM Model
+
+After the services are running, download the Llama 3.1 model:
+
+```bash
+docker exec -it web-agent-ollama ollama pull llama3.1:8b
+```
+
+**What this does:**
+- Downloads Llama 3.1 8B model (~4.7GB)
+- Stores it in a persistent Docker volume
+- Model remains available even after container restarts
+
+**Note:** This step is required before the chat agent can generate responses. The backend waits for Ollama to be healthy before starting.
+
+### 5. Verify Setup
 
 ```bash
 # Check running containers
@@ -76,6 +91,7 @@ curl http://localhost:8000/api/health
 | Backend API | http://localhost:8000 |
 | API Docs | http://localhost:8000/docs |
 | Health Check | http://localhost:8000/api/health |
+| Ollama LLM | http://localhost:11434 |
 
 ## Development Commands
 
@@ -95,6 +111,11 @@ curl http://localhost:8000/api/health
 ./dev.sh clean      # Clean up
 ./dev.sh shell-be   # Backend shell
 ./dev.sh shell-fe   # Frontend shell
+
+# Ollama-specific commands
+docker exec -it web-agent-ollama ollama list               # List models
+docker exec -it web-agent-ollama ollama pull llama3.1:8b   # Pull model
+docker exec -it web-agent-ollama ollama run llama3.1:8b    # Test model
 ```
 
 ### Docker Compose Commands
@@ -103,12 +124,16 @@ curl http://localhost:8000/api/health
 docker compose up -d              # Start in background
 docker compose up --build         # Build and start
 docker compose down               # Stop all services
+docker compose down -v            # Stop and remove volumes (WARNING: deletes models)
 docker compose logs -f            # Follow logs
 docker compose logs -f backend    # Backend logs only
+docker compose logs -f llm        # Ollama logs only
 docker compose restart            # Restart all
 docker compose restart backend    # Restart backend only
+docker compose restart llm        # Restart Ollama only
 docker compose ps                 # List containers
 docker compose exec backend bash  # Backend shell
+docker exec -it web-agent-ollama bash  # Ollama shell
 ```
 
 ## Making Changes
@@ -227,9 +252,27 @@ docker info
 # Specific service
 docker compose logs backend
 docker compose logs frontend
+docker compose logs llm
 
 # Follow live logs
 docker compose logs -f backend
+docker compose logs -f llm
+```
+
+### LLM/Model Issues
+
+```bash
+# Check if model is downloaded
+docker exec -it web-agent-ollama ollama list
+
+# Pull the model (if missing)
+docker exec -it web-agent-ollama ollama pull llama3.1:8b
+
+# Test the model interactively
+docker exec -it web-agent-ollama ollama run llama3.1:8b
+
+# Check Ollama is responding
+curl http://localhost:11434/api/version
 ```
 
 ## Daily Workflow
@@ -310,16 +353,22 @@ async function sendMessage(message) {
 ## Quick Reference
 
 ```
-┌─────────────────────────────────────────┐
-│  Frontend:  http://localhost:8080      │
-│  Backend:   http://localhost:8000      │
-│  API Docs:  http://localhost:8000/docs │
-├─────────────────────────────────────────┤
-│  Start:  ./dev.sh start                │
-│  Stop:   ./dev.sh stop                 │
-│  Logs:   ./dev.sh logs                 │
-│  Test:   ./dev.sh test                 │
-└─────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│  Frontend:  http://localhost:8080                   │
+│  Backend:   http://localhost:8000                   │
+│  API Docs:  http://localhost:8000/docs              │
+│  Ollama:    http://localhost:11434                  │
+├──────────────────────────────────────────────────────┤
+│  Start:      ./dev.sh start                         │
+│  Stop:       ./dev.sh stop                          │
+│  Logs:       ./dev.sh logs                          │
+│  Test:       ./dev.sh test                          │
+├──────────────────────────────────────────────────────┤
+│  Pull Model: docker exec -it web-agent-ollama \     │
+│              ollama pull llama3.1:8b                │
+│  List Models: docker exec -it web-agent-ollama \    │
+│               ollama list                           │
+└──────────────────────────────────────────────────────┘
 ```
 
 **You're ready to code! 🚀**

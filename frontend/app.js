@@ -1,4 +1,16 @@
-const API_BASE = "http://localhost:8000";
+// Dynamically determine API base URL based on current host
+// This allows the app to work from any machine on the network
+const API_BASE = (() => {
+  // Check if there's a meta tag with API URL (for production override)
+  const metaApiUrl = document.querySelector('meta[name="api-url"]');
+  if (metaApiUrl) {
+    return metaApiUrl.getAttribute('content');
+  }
+  
+  // Use current hostname with backend port
+  const hostname = window.location.hostname;
+  return `http://${hostname}:8000`;
+})();
 
 // DOM elements
 let messagesArea;
@@ -7,6 +19,9 @@ let sendBtn;
 
 // Active connections tracking
 const activeConnections = new Map();
+
+// Track streaming messages
+const streamingMessages = new Map();
 
 document.addEventListener("DOMContentLoaded", () => {
   console.log("eBay Web Agent frontend ready");
@@ -100,10 +115,54 @@ function connectToStream(messageId) {
     eventSource.addEventListener("status", (event) => {
       const data = JSON.parse(event.data);
       console.log(`[SSE] Status event:`, data);
-      addStatusMessage(data.stage);
+      const message = data.message || formatStatus(data.stage);
+      addStatusMessage(message);
     });
 
-    // Handle result events
+    // Handle token events (streaming LLM response)
+    eventSource.addEventListener("token", (event) => {
+      const data = JSON.parse(event.data);
+      const token = data.token;
+      
+      // Get or create streaming message element
+      let streamingMsg = streamingMessages.get(messageId);
+      if (!streamingMsg) {
+        streamingMsg = createStreamingMessage();
+        streamingMessages.set(messageId, streamingMsg);
+      }
+      
+      // Append token to streaming message
+      appendTokenToMessage(streamingMsg, token);
+    });
+
+    // Handle response complete event
+    eventSource.addEventListener("response_complete", (event) => {
+      const data = JSON.parse(event.data);
+      console.log(`[SSE] Response complete:`, data);
+      
+      // Finalize streaming message
+      const streamingMsg = streamingMessages.get(messageId);
+      if (streamingMsg) {
+        finalizeStreamingMessage(streamingMsg);
+        streamingMessages.delete(messageId);
+      }
+    });
+
+    // Handle error events
+    eventSource.addEventListener("error", (event) => {
+      const data = JSON.parse(event.data);
+      console.error(`[SSE] Error event:`, data);
+      addMessage("assistant", `❌ ${data.message}`);
+      
+      // Clean up streaming message if exists
+      const streamingMsg = streamingMessages.get(messageId);
+      if (streamingMsg) {
+        streamingMsg.element.remove();
+        streamingMessages.delete(messageId);
+      }
+    });
+
+    // Handle result events (for backward compatibility)
     eventSource.addEventListener("result", (event) => {
       const data = JSON.parse(event.data);
       console.log(`[SSE] Result event:`, data);
@@ -115,6 +174,7 @@ function connectToStream(messageId) {
       console.log(`[SSE] Done event received`);
       eventSource.close();
       activeConnections.delete(messageId);
+      streamingMessages.delete(messageId);
       setInputEnabled(true);
     });
 
@@ -175,8 +235,31 @@ function startPolling(messageId) {
       if (events.length > lastEventCount) {
         for (let i = lastEventCount; i < events.length; i++) {
           const event = events[i];
+          
           if (event.type === "status") {
-            addStatusMessage(event.data.stage);
+            const message = event.data.message || formatStatus(event.data.stage);
+            addStatusMessage(message);
+          } else if (event.type === "token") {
+            // Handle streaming tokens in polling mode
+            let streamingMsg = streamingMessages.get(messageId);
+            if (!streamingMsg) {
+              streamingMsg = createStreamingMessage();
+              streamingMessages.set(messageId, streamingMsg);
+            }
+            appendTokenToMessage(streamingMsg, event.data.token);
+          } else if (event.type === "response_complete") {
+            const streamingMsg = streamingMessages.get(messageId);
+            if (streamingMsg) {
+              finalizeStreamingMessage(streamingMsg);
+              streamingMessages.delete(messageId);
+            }
+          } else if (event.type === "error") {
+            addMessage("assistant", `❌ ${event.data.message}`);
+            const streamingMsg = streamingMessages.get(messageId);
+            if (streamingMsg) {
+              streamingMsg.element.remove();
+              streamingMessages.delete(messageId);
+            }
           } else if (event.type === "result") {
             addResultMessage(event.data);
           }
@@ -276,13 +359,72 @@ function addResultMessage(result) {
 }
 
 /**
+ * Create a new streaming message element
+ */
+function createStreamingMessage() {
+  // Remove welcome message if it exists
+  const welcomeMsg = messagesArea.querySelector(".welcome-message");
+  if (welcomeMsg) {
+    welcomeMsg.remove();
+  }
+
+  const messageDiv = document.createElement("div");
+  messageDiv.className = "message assistant streaming";
+  
+  const contentDiv = document.createElement("div");
+  contentDiv.className = "message-content";
+  messageDiv.appendChild(contentDiv);
+  
+  // Add typing indicator
+  const indicator = document.createElement("span");
+  indicator.className = "typing-indicator";
+  indicator.textContent = "▊";
+  contentDiv.appendChild(indicator);
+  
+  messagesArea.appendChild(messageDiv);
+  scrollToBottom();
+  
+  return {
+    element: messageDiv,
+    content: contentDiv,
+    indicator: indicator,
+    text: ""
+  };
+}
+
+/**
+ * Append a token to a streaming message
+ */
+function appendTokenToMessage(streamingMsg, token) {
+  streamingMsg.text += token;
+  
+  // Update content (keep indicator at end)
+  streamingMsg.content.textContent = streamingMsg.text;
+  streamingMsg.content.appendChild(streamingMsg.indicator);
+  
+  scrollToBottom();
+}
+
+/**
+ * Finalize a streaming message (remove indicator)
+ */
+function finalizeStreamingMessage(streamingMsg) {
+  streamingMsg.element.classList.remove("streaming");
+  streamingMsg.indicator.remove();
+  streamingMsg.content.textContent = streamingMsg.text;
+  scrollToBottom();
+}
+
+/**
  * Format status stage into human-readable text
  */
 function formatStatus(stage) {
   const statusMap = {
+    preparing: "Preparing your request...",
+    querying_llm: "Thinking...",
     parsing: "Parsing your request...",
     searching_ebay: "Searching eBay...",
-    completed: "Search complete!",
+    completed: "Complete!",
   };
   return statusMap[stage] || stage;
 }

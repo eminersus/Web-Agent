@@ -29,7 +29,7 @@ Web-Agent/
 │   ├── styles.css            # Styling
 │   ├── app.js                # Frontend JavaScript
 │   └── Dockerfile            # Frontend Docker configuration
-├── docker-compose.yml        # Docker Compose orchestration
+├── docker-compose.yml        # Docker Compose orchestration (includes Ollama)
 ├── .env                      # Environment variables (not in git)
 ├── .env.example              # Example environment variables
 └── README.md                 # This file
@@ -91,14 +91,27 @@ docker compose up --build
 - Run in detached mode (background): `docker compose up -d --build`
 - Rebuild without cache: `docker compose build --no-cache && docker compose up`
 
-### 4. Access the Application
+### 4. Pull the LLM Model
 
-Once the containers are running:
+After starting the services, pull the Llama model:
+
+```bash
+docker exec -it web-agent-ollama ollama pull llama3.1:8b
+```
+
+This will download the Llama 3.1 8B model (approximately 4.7GB). The model is stored in a Docker volume and persists across container restarts.
+
+**Note:** The backend service waits for Ollama to be healthy before starting (see `depends_on` in docker-compose.yml).
+
+### 5. Access the Application
+
+Once the containers are running and the model is pulled:
 
 - **Frontend**: http://localhost:8080
 - **Backend API**: http://localhost:8000
 - **API Docs (Swagger)**: http://localhost:8000/docs
 - **API Health Check**: http://localhost:8000/api/health
+- **Ollama API**: http://localhost:11434
 
 ## 🔄 Development Workflow
 
@@ -132,20 +145,29 @@ docker compose logs -f
 # View logs for specific service
 docker compose logs -f backend
 docker compose logs -f frontend
+docker compose logs -f llm
 
 # Stop containers
 docker compose down
 
-# Stop and remove volumes
+# Stop and remove volumes (WARNING: deletes LLM models)
 docker compose down -v
 
 # Restart a specific service
 docker compose restart backend
 docker compose restart frontend
+docker compose restart llm
 
 # Execute commands in running containers
 docker compose exec backend bash
 docker compose exec frontend sh
+docker exec -it web-agent-ollama bash
+
+# Ollama-specific commands
+docker exec -it web-agent-ollama ollama list               # List downloaded models
+docker exec -it web-agent-ollama ollama pull llama3.1:8b   # Pull a model
+docker exec -it web-agent-ollama ollama rm llama3.1:8b     # Remove a model
+docker exec -it web-agent-ollama ollama run llama3.1:8b    # Interactive chat
 
 # View running containers
 docker ps
@@ -195,10 +217,21 @@ Open http://localhost:8080 in your browser. You should see a welcome page with:
   - No build step required
   - Cache disabled for development
 
+### LLM Service (Ollama)
+- **Image**: ollama/ollama:latest
+- **Model**: Llama 3.1 8B
+- **Port**: 11434
+- **Features**:
+  - Persistent model storage via Docker volume
+  - Health check ensures availability
+  - Backend depends on LLM service
+  - Pull models with: `docker exec -it web-agent-ollama ollama pull <model>`
+
 ### Docker Networking
 - Custom bridge network: `web-agent-network`
 - Services can communicate using service names
 - Frontend can reach backend at `http://backend:8000`
+- Backend can reach Ollama at `http://llm:11434`
 
 ## 📝 API Endpoints
 
@@ -263,6 +296,22 @@ docker compose exec backend ls -la /app/app
 Check your `.env` file and ensure `CORS_ALLOW_ORIGINS` includes your frontend URL:
 ```bash
 CORS_ALLOW_ORIGINS=http://localhost:8080,http://127.0.0.1:8080
+```
+
+### Ollama Model Issues
+
+```bash
+# Check if model is downloaded
+docker exec -it web-agent-ollama ollama list
+
+# Check Ollama logs
+docker compose logs llm
+
+# Re-pull the model
+docker exec -it web-agent-ollama ollama pull llama3.1:8b
+
+# Test Ollama directly
+curl http://localhost:11434/api/version
 ```
 
 ## 🛠️ Development Helper Script

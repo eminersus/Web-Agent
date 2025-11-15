@@ -9,6 +9,16 @@ import asyncio
 import json
 from typing import Dict, List, Any
 from datetime import datetime
+import logging
+
+from .llm_service import get_ollama_service, cleanup_ollama_service
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Web Agent Backend API",
@@ -16,17 +26,52 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# Startup and shutdown events
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services on startup"""
+    logger.info("Starting Web Agent Backend...")
+    ollama = get_ollama_service()
+    is_healthy = await ollama.health_check()
+    if is_healthy:
+        logger.info("✓ Ollama service is healthy")
+        models = await ollama.list_models()
+        if models:
+            logger.info(f"✓ Available models: {[m.get('name') for m in models]}")
+        else:
+            logger.warning("⚠ No models found. Please pull a model.")
+    else:
+        logger.warning("⚠ Ollama service is not responding")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    logger.info("Shutting down Web Agent Backend...")
+    await cleanup_ollama_service()
+
 # CORS: read allowed origins from env (comma-separated)
 origins_env = os.getenv("CORS_ALLOW_ORIGINS", "")
 allowed_origins = [o.strip() for o in origins_env.split(",") if o.strip()]
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins or ["*"],   # loosen during early dev
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# When using wildcard "*", we cannot use credentials
+# This is a CORS security requirement
+if allowed_origins and allowed_origins != ["*"]:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    # For development/local network access with wildcard
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 @app.get("/")
 def root():
@@ -36,6 +81,36 @@ def root():
         "version": "1.0.0",
         "status": "running"
     })
+
+@app.get("/api/health")
+def health():
+    """Health check endpoint"""
+    return JSONResponse({
+        "status": "ok",
+        "environment": os.getenv("ENVIRONMENT", "unknown")
+    })
+
+@app.get("/api/llm/health")
+async def llm_health():
+    """Check LLM service health"""
+    ollama = get_ollama_service()
+    is_healthy = await ollama.health_check()
+    
+    if is_healthy:
+        models = await ollama.list_models()
+        return JSONResponse({
+            "status": "healthy",
+            "service": "ollama",
+            "base_url": ollama.base_url,
+            "model": ollama.model,
+            "available_models": [m.get("name") for m in models]
+        })
+    else:
+        return JSONResponse({
+            "status": "unhealthy",
+            "service": "ollama",
+            "base_url": ollama.base_url
+        }, status_code=503)
 
 # =============================================================================
 # In-Memory Storage
@@ -76,7 +151,7 @@ async def create_message(request: ChatMessageRequest):
     # Start background processing
     asyncio.create_task(process_message(message_id))
     
-    print(f"[{message_id}] Created message: {request.text}")
+    logger.info(f"[{message_id}] Created message: {request.text}")
     
     return JSONResponse({
         "message_id": message_id
@@ -93,7 +168,7 @@ async def stream_message_events(message_id: str):
     
     async def event_generator():
         """Generate SSE events for this message"""
-        print(f"[{message_id}] SSE client connected")
+        logger.info(f"[{message_id}] SSE client connected")
         
         # Track which events we've already sent
         sent_count = 0
@@ -115,7 +190,9 @@ async def stream_message_events(message_id: str):
                     "data": json.dumps(event_data)
                 }
                 
-                print(f"[{message_id}] SSE sent: {event_type} -> {event_data}")
+                # Only log non-token events to avoid spam
+                if event_type != "token":
+                    logger.info(f"[{message_id}] SSE sent: {event_type}")
                 sent_count += 1
             
             # If done, send the done event and close
@@ -124,11 +201,11 @@ async def stream_message_events(message_id: str):
                     "event": "done",
                     "data": json.dumps({})
                 }
-                print(f"[{message_id}] SSE stream complete")
+                logger.info(f"[{message_id}] SSE stream complete")
                 break
             
             # Wait a bit before checking for new events
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(0.05)  # Check more frequently for smoother streaming
     
     return EventSourceResponse(event_generator())
 
@@ -156,46 +233,95 @@ async def get_message_status(message_id: str):
 
 async def process_message(message_id: str):
     """
-    Simulate background processing of a message.
-    Sends status updates and mock results.
+    Process a user message by querying the LLM and streaming the response.
     """
     message_data = messages_store[message_id]
+    user_message = message_data["text"]
     
-    # Stage 1: Parsing
-    await asyncio.sleep(0.5)
-    message_data["status"] = "parsing"
-    message_data["events"].append({
-        "type": "status",
-        "data": {"stage": "parsing"}
-    })
-    print(f"[{message_id}] Stage: parsing")
+    try:
+        # Stage 1: Preparing to query LLM
+        message_data["status"] = "preparing"
+        message_data["events"].append({
+            "type": "status",
+            "data": {"stage": "preparing", "message": "Preparing your request..."}
+        })
+        logger.info(f"[{message_id}] Stage: preparing")
+        
+        # Stage 2: Querying LLM
+        message_data["status"] = "querying_llm"
+        message_data["events"].append({
+            "type": "status",
+            "data": {"stage": "querying_llm", "message": "Thinking..."}
+        })
+        logger.info(f"[{message_id}] Stage: querying LLM")
+        
+        # Get LLM service
+        ollama = get_ollama_service()
+        
+        # Build system prompt for eBay search agent
+        system_prompt = """You are a helpful assistant for daily chatting."""
+        
+        # Build messages for chat
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message}
+        ]
+        
+        # Stream the response
+        full_response = ""
+        token_count = 0
+        
+        async for chunk in ollama.generate_chat_stream(messages, temperature=0.7):
+            if chunk.get("error"):
+                # Handle error
+                logger.error(f"[{message_id}] LLM error: {chunk['error']}")
+                message_data["events"].append({
+                    "type": "error",
+                    "data": {"message": f"Error: {chunk['error']}"}
+                })
+                message_data["status"] = "error"
+                break
+            
+            if chunk.get("done"):
+                # Streaming complete
+                logger.info(f"[{message_id}] LLM response complete. Tokens: {token_count}")
+                
+                # Add final response event
+                message_data["events"].append({
+                    "type": "response_complete",
+                    "data": {
+                        "full_text": full_response,
+                        "token_count": chunk.get("eval_count", token_count)
+                    }
+                })
+                message_data["status"] = "completed"
+                message_data["result"] = {
+                    "response": full_response,
+                    "token_count": token_count
+                }
+                break
+            
+            # Handle token
+            token = chunk.get("token", "")
+            if token:
+                full_response += token
+                token_count += 1
+                
+                # Send token to frontend
+                message_data["events"].append({
+                    "type": "token",
+                    "data": {"token": token}
+                })
+        
+        # Mark as done
+        message_data["done"] = True
+        logger.info(f"[{message_id}] Processing complete")
     
-    # Stage 2: Searching eBay
-    await asyncio.sleep(1)
-    message_data["status"] = "searching_ebay"
-    message_data["events"].append({
-        "type": "status",
-        "data": {"stage": "searching_ebay"}
-    })
-    print(f"[{message_id}] Stage: searching_ebay")
-    
-    # Stage 3: Return mock result
-    await asyncio.sleep(1)
-    result = {
-        "title": "Purple Umbrella",
-        "price": 17.99,
-        "url": "https://ebay.com/item/example",
-        "condition": "New"
-    }
-    message_data["status"] = "completed"
-    message_data["result"] = result
-    message_data["events"].append({
-        "type": "result",
-        "data": result
-    })
-    print(f"[{message_id}] Result: {result}")
-    
-    # Mark as done
-    await asyncio.sleep(0.2)
-    message_data["done"] = True
-    print(f"[{message_id}] Processing complete")
+    except Exception as e:
+        logger.error(f"[{message_id}] Error processing message: {e}", exc_info=True)
+        message_data["status"] = "error"
+        message_data["events"].append({
+            "type": "error",
+            "data": {"message": f"An error occurred: {str(e)}"}
+        })
+        message_data["done"] = True

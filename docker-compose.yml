@@ -6,13 +6,14 @@ services:
     container_name: web-agent-backend
     ports:
       - "8000:8000"
-    # Load environment variables from .env file
     env_file:
       - .env
-    # Mount source code for hot reload during development
     volumes:
       - ./backend/app:/app/app
     restart: unless-stopped
+    depends_on:
+      llm:
+        condition: service_healthy
     networks:
       - web-agent-network
 
@@ -25,12 +26,30 @@ services:
       - "8080:80"
     depends_on:
       - backend
-    # Mount source files for live updates during development
     volumes:
       - ./frontend:/usr/share/nginx/html:ro
     restart: unless-stopped
     networks:
       - web-agent-network
+
+  llm:
+    image: ollama/ollama:latest
+    container_name: web-agent-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+    networks:
+      - web-agent-network
+
+volumes:
+  ollama:
 
 networks:
   web-agent-network:
