@@ -1,0 +1,116 @@
+services:
+  # LibreChat Frontend
+  librechat:
+    image: ghcr.io/danny-avila/librechat:latest
+    container_name: web-agent-librechat
+    environment:
+      OPENROUTER_KEY: ${OPENROUTER_API_KEY}
+      MONGO_URI: mongodb://mongo:27017/librechat
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-your_nextauth_secret_change_this}
+      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3080}
+      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
+      ALLOW_EMAIL_LOGIN: ${ALLOW_EMAIL_LOGIN:-true}
+      APP_URL: ${APP_URL:-http://localhost:3080}
+      # Session and security settings for easier access
+      SESSION_EXPIRY: ${SESSION_EXPIRY:-1000000000}
+      REFRESH_TOKEN_EXPIRY: ${REFRESH_TOKEN_EXPIRY:-1000000000}
+      # Allow unverified email for easier development access
+      ALLOW_UNVERIFIED_EMAIL: ${ALLOW_UNVERIFIED_EMAIL:-true}
+    volumes:
+      - ./librechat.yaml:/app/librechat.yaml:ro
+      - ./data:/app/data
+    networks:
+      - web-agent-network
+    depends_on:
+      - mongo
+      - mcp-server
+      - librechat-init
+    restart: unless-stopped
+    ports:
+      - "3080:3080"
+
+  # MongoDB for LibreChat
+  mongo:
+    image: mongo:6
+    container_name: web-agent-mongo
+    command: ["--bind_ip_all"]
+    volumes:
+      - ./mongo-data:/data/db
+    networks:
+      - web-agent-network
+    restart: unless-stopped
+
+  # LibreChat initialization service
+  librechat-init:
+    image: mongo:6
+    container_name: web-agent-librechat-init
+    volumes:
+      - ./init-librechat.sh:/init-librechat.sh:ro
+    networks:
+      - web-agent-network
+    depends_on:
+      - mongo
+    command: bash /init-librechat.sh
+    restart: "no"
+
+  # MCP Server (FastMCP with SSE)
+  mcp-server:
+    build:
+      context: ./mcp-server
+    container_name: web-agent-mcp-server
+    environment:
+      MCP_HOST: ${MCP_HOST:-0.0.0.0}
+      MCP_PORT: ${MCP_PORT:-8001}
+      DEV_MODE: ${DEV_MODE:-false}
+    networks:
+      - web-agent-network
+    ports:
+      - "${MCP_PORT:-8001}:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8000' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    depends_on:
+      - mongo
+
+  # Backend Middleware (Optional - for flow control and interruption)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: web-agent-backend
+    ports:
+      - "8000:8000"
+    environment:
+      UVICORN_HOST: 0.0.0.0
+      UVICORN_PORT: 8000
+      CORS_ALLOW_ORIGINS: "*"
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEBUG: ${DEBUG:-false}
+      # MCP Server configuration
+      MCP_SERVER_URL: http://mcp-server:8000
+      # OpenRouter configuration
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+    volumes:
+      - ./backend/app:/app/app:ro
+    depends_on:
+      - mcp-server
+    restart: unless-stopped
+    networks:
+      - web-agent-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  web-agent-network:
+    driver: bridge
+

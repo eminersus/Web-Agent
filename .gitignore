@@ -3,9 +3,6 @@
 .env.local
 .env.*.local
 
-# Docker volumes
-volumes/
-
 # Python
 __pycache__/
 *.py[cod]
@@ -28,11 +25,13 @@ wheels/
 .installed.cfg
 *.egg
 MANIFEST
+*.log
 
-# Virtual environments
+# Virtual Environment
 venv/
 ENV/
 env/
+.venv
 
 # IDEs
 .vscode/
@@ -42,38 +41,28 @@ env/
 *~
 .DS_Store
 
-# Logs
-*.log
-logs/
-
-# Database
-*.db
-*.sqlite
-*.sqlite3
-
-# Node modules (if any)
-node_modules/
-
-# Coverage reports
-htmlcov/
-.tox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# Testing
-.pytest_cache/
-
 # Docker
-docker-compose.override.yml
+.docker/
+
+# Data directories
+data/
+mongo-data/
+mcp-cache/
+
+# Logs
+logs/
+*.log
 
 # Temporary files
+tmp/
+temp/
 *.tmp
-*.temp
-.tmp/
+
+# Backups
+*.backup
+*.bak
+*.old
+
+# OS
+Thumbs.db
+.DS_Store

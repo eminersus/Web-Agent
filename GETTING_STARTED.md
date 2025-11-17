@@ -1,302 +1,542 @@
 # Getting Started with Web Agent
 
-This guide will help you set up and run the Web Agent application with LibreChat, OpenRouter, and MCP Server.
+This guide will walk you through setting up and using Web Agent step by step.
 
-## 📋 Prerequisites
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Installation](#installation)
+3. [Configuration](#configuration)
+4. [Starting the Application](#starting-the-application)
+5. [First Steps](#first-steps)
+6. [Using MCP Tools](#using-mcp-tools)
+7. [Troubleshooting](#troubleshooting)
+8. [Next Steps](#next-steps)
+
+## Prerequisites
 
 Before you begin, ensure you have:
 
-1. **Docker Desktop** installed and running
-   - Download from: https://www.docker.com/products/docker-desktop/
-   - Minimum 8GB RAM allocated to Docker
-   - 20GB free disk space
+1. **Docker** (version 20.10 or later)
+   ```bash
+   docker --version
+   ```
 
-2. **OpenRouter API Key**
-   - Sign up at: https://openrouter.ai
-   - Navigate to: https://openrouter.ai/keys
+2. **Docker Compose** (version 2.0 or later)
+   ```bash
+   docker-compose --version
+   ```
+
+3. **OpenRouter API Key**
+   - Go to [openrouter.ai](https://openrouter.ai)
+   - Sign up for an account
+   - Navigate to [API Keys](https://openrouter.ai/keys)
    - Create a new API key
-   - Add credits to your account (pay-as-you-go)
+   - Add some credits to your account
 
-## 🚀 Setup Steps
+4. **Basic Command Line Knowledge**
+   - Navigating directories
+   - Running commands
+   - Editing text files
 
-### Step 1: Configure Environment
+## Installation
 
-1. Copy the environment template:
-   ```bash
-   cp env.template .env
-   ```
+### Step 1: Get the Code
 
-2. Edit `.env` and update the following **required** values:
-   ```bash
-   # Required: Your OpenRouter API key
-   OPENROUTER_API_KEY=sk-or-v1-your-key-here
-   
-   # Required: Generate secure random strings (use `openssl rand -hex 32`)
-   JWT_SECRET=<generate-random-string>
-   JWT_REFRESH_SECRET=<generate-random-string>
-   ```
+Clone the repository:
+```bash
+git clone <your-repo-url>
+cd Web-Agent-master
+```
 
-   **Generate secure secrets:**
-   ```bash
-   # On macOS/Linux:
-   openssl rand -hex 32
-   
-   # Or use Python:
-   python3 -c "import secrets; print(secrets.token_hex(32))"
-   ```
+Or if you have a zip file:
+```bash
+unzip Web-Agent-master.zip
+cd Web-Agent-master
+```
 
-### Step 2: Start the Services
+### Step 2: Verify Project Structure
 
-Start all services using Docker Compose:
+Ensure you have these files:
+```bash
+ls -la
+```
 
+You should see:
+```
+├── backend/
+├── mcp-server/
+├── librechat.yaml
+├── dev.yaml
+├── docker-compose.yaml
+├── env.template
+├── README.md
+└── GETTING_STARTED.md (this file)
+```
+
+## Configuration
+
+### Step 1: Create Environment File
+
+Copy the template:
+```bash
+cp env.template .env
+```
+
+### Step 2: Set Your OpenRouter API Key
+
+Edit `.env` file:
+```bash
+nano .env
+# or
+vim .env
+# or use your favorite editor
+```
+
+Set your OpenRouter API key:
+```bash
+OPENROUTER_API_KEY=sk-or-v1-your-actual-key-here
+```
+
+### Step 3: Generate Secure Secrets (Optional)
+
+For better security, generate random secrets:
+
+```bash
+# On macOS/Linux
+export JWT_SECRET=$(openssl rand -hex 32)
+export JWT_REFRESH_SECRET=$(openssl rand -hex 32)
+export NEXTAUTH_SECRET=$(openssl rand -hex 32)
+
+echo "JWT_SECRET=$JWT_SECRET" >> .env
+echo "JWT_REFRESH_SECRET=$JWT_REFRESH_SECRET" >> .env
+echo "NEXTAUTH_SECRET=$NEXTAUTH_SECRET" >> .env
+```
+
+Or just use the defaults in `env.template` (not recommended for production).
+
+### Step 4: Review Configuration
+
+Your `.env` should look like:
+```bash
+OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxx
+JWT_SECRET=abc123...
+JWT_REFRESH_SECRET=def456...
+NEXTAUTH_SECRET=ghi789...
+APP_URL=http://localhost:3080
+ENVIRONMENT=development
+DEBUG=true
+```
+
+## Starting the Application
+
+### Development Mode
+
+Start all services:
 ```bash
 docker-compose -f dev.yaml up -d
 ```
 
-This will start:
-- LibreChat (frontend) on port 3080
-- Backend (middleware) on port 8000
-- MCP Server (tools) on port 8001
-- MongoDB on port 27017
+This will:
+- Download Docker images (first time only)
+- Build custom images for backend and MCP server
+- Start all services in the background
 
-### Step 3: Wait for Services to Initialize
-
-Check if all services are running:
+### Check Service Status
 
 ```bash
 docker-compose -f dev.yaml ps
 ```
 
-Check logs to ensure everything started correctly:
-
-```bash
-# Check backend logs
-docker-compose -f dev.yaml logs backend
-
-# Check MCP server logs
-docker-compose -f dev.yaml logs mcp-server
-
-# Check LibreChat logs
-docker-compose -f dev.yaml logs librechat
+You should see:
+```
+NAME                    STATUS
+web-agent-librechat     Up (healthy)
+web-agent-mongo         Up (healthy)
+web-agent-mcp-server    Up (healthy)
+web-agent-backend       Up (healthy)
 ```
 
-### Step 4: Access LibreChat
+### View Logs
 
-1. Open your browser and navigate to: **http://localhost:3080**
+Watch all logs:
+```bash
+docker-compose -f dev.yaml logs -f
+```
 
-2. You'll see the LibreChat registration page
+Watch specific service:
+```bash
+docker-compose -f dev.yaml logs -f mcp-server
+```
 
-3. Create a new account:
-   - Enter your email (doesn't need to be real for local development)
-   - Choose a username
-   - Create a secure password
-   - Click "Submit"
+Press `Ctrl+C` to stop watching logs.
 
-4. Log in with your credentials
+## First Steps
+
+### Step 1: Open LibreChat
+
+Open your web browser and go to:
+```
+http://localhost:3080
+```
+
+You should see the LibreChat interface.
+
+### Step 2: Create an Account
+
+1. Click **"Sign Up"** or **"Register"**
+2. Enter your email and password
+3. Confirm your password
+4. Click **"Sign Up"**
+
+Note: In development mode, email verification is disabled.
+
+### Step 3: Log In
+
+1. Enter your credentials
+2. Click **"Sign In"**
+3. You should see the chat interface
+
+### Step 4: Select a Model
+
+1. Look for the model dropdown (usually at the top)
+2. Select **"OpenRouter"** as the endpoint
+3. Choose a model (e.g., **"Claude 3.5 Sonnet"**)
 
 ### Step 5: Start Chatting!
 
-1. Select the **OpenRouter** endpoint from the dropdown
+Type a message and press Enter:
+```
+Hello! Can you tell me what tools you have access to?
+```
 
-2. Choose a model (e.g., Claude 3.5 Sonnet, GPT-4, Llama 3.1)
+The LLM should respond listing the available MCP tools.
 
-3. Start a conversation!
+## Using MCP Tools
 
-4. Try using MCP tools by asking questions like:
-   - "What time is it?"
-   - "Calculate 123 * 456"
-   - "Create a task to review the documentation"
+The MCP server provides several tools. Here are examples:
 
-## 🔍 Verifying the Setup
+### 1. Get Current Time
 
-### Check Backend Health
+```
+What time is it right now?
+```
 
+The LLM will call `get_current_time()` tool and tell you the current date and time.
+
+### 2. Calculate
+
+```
+What is 12345 * 67890?
+```
+
+The LLM will use the `calculate` tool:
+```
+calculate("12345 * 67890")
+```
+
+### 3. Create Tasks
+
+```
+Create a task to buy groceries tomorrow with high priority
+```
+
+The LLM will call:
+```
+create_task(
+    title="Buy groceries",
+    description="Tomorrow",
+    priority="high"
+)
+```
+
+### 4. List Tasks
+
+```
+Show me all my tasks
+```
+
+The LLM will call `list_tasks()`.
+
+### 5. Analyze Text
+
+```
+Analyze the sentiment of this text: "I love this product!"
+```
+
+The LLM will call:
+```
+analyze_text(
+    text="I love this product!",
+    analysis_type="sentiment"
+)
+```
+
+### 6. Weather (Placeholder)
+
+```
+What's the weather in San Francisco?
+```
+
+The LLM will call `get_weather("San Francisco")`, which currently returns placeholder data.
+
+**To integrate real weather data**: Edit `mcp-server/api/web.py` and add your weather API integration.
+
+### 7. Web Search (Placeholder)
+
+```
+Search the web for Python tutorials
+```
+
+The LLM will call `search_web("Python tutorials")`, which currently returns placeholder results.
+
+**To integrate real search**: Edit `mcp-server/api/web.py` and add your search API (Google, Bing, DuckDuckGo).
+
+## Troubleshooting
+
+### Services Won't Start
+
+**Problem**: Docker containers fail to start
+
+**Solution**:
 ```bash
-curl http://localhost:8000/api/health
-```
-
-Expected response:
-```json
-{
-  "status": "ok",
-  "environment": "development"
-}
-```
-
-### Check All Services Health
-
-```bash
-curl http://localhost:8000/api/services/health
-```
-
-Expected response:
-```json
-{
-  "backend": {"status": "healthy"},
-  "openrouter": {"status": "healthy"},
-  "mcp_server": {"status": "healthy"}
-}
-```
-
-### List Available MCP Tools
-
-```bash
-curl http://localhost:8000/api/mcp/tools
-```
-
-This should return a list of available tools from the MCP server.
-
-## 🛠️ Common Issues
-
-### Issue: Services won't start
-
-**Solution:** Clean up and rebuild
-
-```bash
+# Stop everything
 docker-compose -f dev.yaml down -v
+
+# Rebuild and start
 docker-compose -f dev.yaml up --build -d
 ```
 
-### Issue: "OpenRouter service is unhealthy"
+### Can't Access LibreChat
 
-**Possible causes:**
-1. Invalid API key
-2. No credits in OpenRouter account
-3. Network connectivity issues
+**Problem**: Browser shows "Connection refused" at http://localhost:3080
 
-**Solution:**
-- Check your `.env` file for correct `OPENROUTER_API_KEY`
-- Verify your OpenRouter account has credits
-- Check Docker container logs: `docker-compose -f dev.yaml logs backend`
-
-### Issue: MongoDB connection errors
-
-**Solution:** Restart MongoDB with clean volumes
-
+**Check**:
 ```bash
-docker-compose -f dev.yaml down mongodb
-docker volume rm web-agent_mongodb-data
-docker-compose -f dev.yaml up -d mongodb
+# Is LibreChat running?
+docker-compose -f dev.yaml ps librechat
+
+# Check logs
+docker-compose -f dev.yaml logs librechat
 ```
 
-Wait for MongoDB to initialize, then restart other services:
-
+**Solution**:
 ```bash
+# Restart LibreChat
 docker-compose -f dev.yaml restart librechat
 ```
 
-### Issue: "MCP Server is not responding"
+### OpenRouter Errors
 
-**Solution:** Check MCP server logs
+**Problem**: "Invalid API key" or "Insufficient credits"
 
+**Check**:
+1. Verify your API key in `.env`
+2. Check your OpenRouter account has credits
+3. Test the key:
+   ```bash
+   curl http://localhost:8000/api/openrouter/models
+   ```
+
+**Solution**:
+- Double-check the API key (no extra spaces)
+- Add credits at [openrouter.ai](https://openrouter.ai)
+- Restart services:
+  ```bash
+  docker-compose -f dev.yaml restart
+  ```
+
+### MCP Tools Not Working
+
+**Problem**: LLM says it doesn't have access to tools
+
+**Check**:
 ```bash
-docker-compose -f dev.yaml logs mcp-server
+# Is MCP server healthy?
+curl http://localhost:8001/health
+
+# Check services health
+curl http://localhost:8000/api/services/health
 ```
 
-Restart MCP server:
-
+**Solution**:
 ```bash
+# Restart MCP server
 docker-compose -f dev.yaml restart mcp-server
+
+# Restart LibreChat
+docker-compose -f dev.yaml restart librechat
 ```
 
-### Issue: Port already in use
+### Database Issues
 
-**Solution:** Change ports in `dev.yaml` or stop conflicting services
+**Problem**: Can't log in or conversations not saving
 
-Find what's using the port:
+**Solution**:
 ```bash
-# On macOS/Linux:
-lsof -i :3080
-lsof -i :8000
-lsof -i :8001
+# Reset MongoDB
+docker-compose -f dev.yaml down
+docker volume rm web-agent-master_mongodb-data
+docker-compose -f dev.yaml up -d
 ```
 
-## 📊 Monitoring
+Note: This will delete all users and conversations.
 
-### View logs in real-time
+### Port Conflicts
+
+**Problem**: "Port already in use"
+
+**Check**:
+```bash
+# Check what's using the port
+lsof -i :3080  # LibreChat
+lsof -i :8000  # Backend
+lsof -i :8001  # MCP Server
+```
+
+**Solution**:
+- Stop the conflicting service
+- Or change ports in `dev.yaml`
+
+## Next Steps
+
+### 1. Add Custom Tools
+
+Learn how to add your own MCP tools:
+```bash
+# See examples in:
+mcp-server/api/tools.py
+mcp-server/api/web.py
+mcp-server/api/tasks.py
+```
+
+Follow the pattern:
+1. Create a new API class
+2. Register tools with `@mcp.tool()` decorator
+3. Add to `server.py`
+4. Rebuild container
+
+See [README.md](README.md) for detailed examples.
+
+### 2. Integrate Real APIs
+
+Replace placeholders with real APIs:
+
+**Weather**:
+- Sign up for [OpenWeatherMap](https://openweathermap.org/api)
+- Add API key to `.env`
+- Update `mcp-server/api/web.py`
+
+**Search**:
+- Get [Google Custom Search API](https://developers.google.com/custom-search/v1/overview)
+- Or use [DuckDuckGo Instant Answer API](https://duckduckgo.com/api)
+- Update `mcp-server/api/web.py`
+
+### 3. Try Different Models
+
+Experiment with different LLMs:
+- Anthropic Claude (best for complex reasoning)
+- OpenAI GPT-4 (great all-rounder)
+- Llama 3.1 70B (powerful open model)
+- Google Gemini (good for analysis)
+
+Select from the model dropdown in LibreChat.
+
+### 4. Production Deployment
+
+For production:
+1. Use `docker-compose.yaml` (not `dev.yaml`)
+2. Set secure secrets
+3. Disable debug mode
+4. Set up domain and SSL
+5. Restrict CORS origins
+
+See production deployment guide in [README.md](README.md).
+
+### 5. Backend Middleware
+
+Explore the backend API:
+```
+http://localhost:8000/docs
+```
+
+Features:
+- Service health monitoring
+- OpenRouter model listing
+- MCP server information
+- Future: Flow control and interruption
+
+### 6. Learn the Architecture
+
+Read detailed architecture docs:
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Complete architecture guide
+- [README.md](README.md) - Project overview
+
+## Common Use Cases
+
+### Use Case 1: Personal Assistant
+
+```
+You: Create a task to call mom tomorrow at 3pm
+You: What time is it now?
+You: Calculate how many hours until the call
+```
+
+### Use Case 2: Research Helper
+
+```
+You: Search the web for information about FastMCP
+You: Analyze the sentiment of this review: "..."
+You: Summarize this text in 50 words
+```
+
+### Use Case 3: Development Aid
+
+```
+You: Calculate 2^10
+You: What is the current timestamp?
+You: Create a task to review PR #123
+```
+
+## Getting Help
+
+### Documentation
+
+- [README.md](README.md) - Project overview
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Architecture details
+- [Backend API Docs](http://localhost:8000/docs) - API reference
+
+### Logs
+
+Check service logs:
+```bash
+docker-compose -f dev.yaml logs -f [service-name]
+```
+
+Services:
+- `librechat` - Frontend
+- `mcp-server` - Tools server
+- `backend` - Middleware
+- `mongodb` - Database
+
+### Health Checks
 
 ```bash
 # All services
-docker-compose -f dev.yaml logs -f
+curl http://localhost:8000/api/services/health
 
-# Specific service
-docker-compose -f dev.yaml logs -f backend
-docker-compose -f dev.yaml logs -f mcp-server
-docker-compose -f dev.yaml logs -f librechat
+# Individual services
+curl http://localhost:3080  # LibreChat
+curl http://localhost:8000/api/health  # Backend
+curl http://localhost:8001/health  # MCP Server
 ```
 
-### Check resource usage
+## Congratulations! 🎉
 
-```bash
-docker stats
-```
+You now have a fully functional Web Agent with:
+- ✅ AI chat interface (LibreChat)
+- ✅ Multiple LLM models (OpenRouter)
+- ✅ MCP tools for enhanced capabilities
+- ✅ Extensible architecture
 
-## 🔄 Updating the Application
-
-### Pull latest changes
-
-```bash
-git pull origin main
-```
-
-### Rebuild and restart services
-
-```bash
-docker-compose -f dev.yaml down
-docker-compose -f dev.yaml up --build -d
-```
-
-## 🧹 Cleaning Up
-
-### Stop all services
-
-```bash
-docker-compose -f dev.yaml down
-```
-
-### Remove all data (including database)
-
-```bash
-docker-compose -f dev.yaml down -v
-```
-
-### Remove Docker images
-
-```bash
-docker-compose -f dev.yaml down --rmi all
-```
-
-## 🎯 Next Steps
-
-1. **Customize MCP Tools**: Edit `mcp-server/server.py` to add your own tools
-2. **Configure Models**: Edit `librechat.yaml` to add or remove models
-3. **Integrate APIs**: Replace placeholder implementations in MCP tools with real APIs
-4. **Deploy to Production**: See deployment documentation
-
-## 📚 Additional Resources
-
-- [LibreChat Documentation](https://www.librechat.ai/docs)
-- [OpenRouter Documentation](https://openrouter.ai/docs)
-- [FastMCP Documentation](https://github.com/jlowin/fastmcp)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-
-## 💡 Tips
-
-- Start with the Claude 3.5 Sonnet model - it's powerful and cost-effective
-- Use the `temperature` parameter to control response creativity (0.0 = focused, 1.0 = creative)
-- Monitor your OpenRouter usage and costs at https://openrouter.ai/activity
-- Keep your `.env` file secure and never commit it to version control
-
-## 🆘 Getting Help
-
-If you encounter issues:
-
-1. Check the logs: `docker-compose -f dev.yaml logs`
-2. Verify your configuration in `.env`
-3. Review this guide's troubleshooting section
-4. Open an issue on GitHub with:
-   - Error messages
-   - Relevant logs
-   - Steps to reproduce
-
-Happy chatting! 🚀
+Start building and experimenting! Happy coding! 🚀

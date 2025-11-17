@@ -1,17 +1,30 @@
 # LibreChat Configuration
 # Documentation: https://www.librechat.ai/docs/configuration/librechat_yaml
 
-version: 1.1.5
+version: 1.2.9
 
 cache: true
+
+# Interface Configuration
+interface:
+  modelSelect: true
+  parameters: true
+  presets: true
 
 # Define custom endpoints
 endpoints:
   # OpenRouter endpoint for LLM models
   custom:
     - name: "OpenRouter"
-      apiKey: "${OPENROUTER_API_KEY}"
+      type: openai
       baseURL: "https://openrouter.ai/api/v1"
+      apiKey: "${OPENROUTER_API_KEY}"
+      headers:
+        HTTP-Referer: "${APP_URL:-http://localhost:3080}"
+        X-Title: "Web-Agent-LibreChat"
+      modelDisplayLabel: "OpenRouter"
+      titleConvo: true
+      titleModel: "anthropic/claude-3.5-sonnet"
       models:
         default:
           - "anthropic/claude-3.5-sonnet"
@@ -24,50 +37,28 @@ endpoints:
           - "google/gemini-pro"
           - "mistralai/mistral-large"
         fetch: true
-      titleConvo: true
-      titleModel: "anthropic/claude-3.5-sonnet"
-      summarize: false
-      summaryModel: "openai/gpt-3.5-turbo"
-      forcePrompt: false
-      modelDisplayLabel: "OpenRouter"
-      addParams:
-        headers:
-          "HTTP-Referer": "${APP_URL:-http://localhost:3080}"
-          "X-Title": "Web-Agent-LibreChat"
+  
+  # Agent configuration
+  agents:
+    recursionLimit: 100
+    maxRecursionLimit: 100
 
 # Model Context Protocol (MCP) Server Configuration
-# The MCP server provides tools and resources to the LLM
+# FastMCP with SSE transport (similar to sagemind architecture)
 mcpServers:
-  web-agent-tools:
-    type: streamable-http
-    url: "http://mcp-server:8001/mcp"
-    description: "Web Agent MCP Server providing tools for time, calculations, web search, weather, tasks, and text analysis"
-    initTimeout: 15000
-    timeout: 60000
-    serverInstructions: |
-      You have access to the following tools:
-      - get_current_time: Get the current date and time
-      - calculate: Perform mathematical calculations
-      - search_web: Search the web (placeholder)
-      - get_weather: Get weather information (placeholder)
-      - create_task: Create tasks and reminders
-      - analyze_text: Analyze text for sentiment, keywords, or summary
-
-# Interface Configuration
-interface:
-  # Privacy and Terms
-  privacyPolicy:
-    externalUrl: ""
-    openNewTab: true
-  termsOfService:
-    externalUrl: ""
-    openNewTab: true
+  web-agent-mcp:
+    type: sse
+    url: "http://mcp-server:8000/sse"
+    timeout: 600000
+    initTimeout: 600000
+    serverInstructions: true
+    chatMenu: true
+    startup: true
 
 # Registration and Authentication
 registration:
   socialLogins: []
   allowedDomains: []
-  enabled: true  # Enable user registration
 
 # File handling
 fileConfig:
@@ -106,7 +97,6 @@ modelSpecs:
     - name: "anthropic/claude-3.5-sonnet"
       label: "Claude 3.5 Sonnet"
       description: "Most intelligent model from Anthropic"
-      iconURL: ""
       preset:
         endpoint: "OpenRouter"
         modelLabel: "Claude 3.5 Sonnet"
@@ -122,4 +112,3 @@ modelSpecs:
       preset:
         endpoint: "OpenRouter"
         modelLabel: "Llama 3.1 70B"
-

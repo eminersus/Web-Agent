@@ -1,17 +1,28 @@
-FROM python:3.11-slim
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
 WORKDIR /app
 
-# Install dependencies
+# Install curl for healthchecks
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# Upgrade pip
+RUN pip install --upgrade pip
+
+# Copy requirements and install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install -r requirements.txt
 
-# Copy MCP server code
-COPY server.py .
+# Copy application code
+COPY . .
 
-# Expose port for HTTP transport (if needed)
+# Expose MCP server port
 EXPOSE 8001
 
-# Run the MCP server
-CMD ["python", "-u", "server.py"]
-
+# Run the FastMCP server with SSE transport
+CMD ["python", "server.py", "--sse"]

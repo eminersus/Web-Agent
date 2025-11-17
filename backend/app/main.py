@@ -2,14 +2,10 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from sse_starlette.sse import EventSourceResponse
 import os
-import uuid
-import asyncio
-import json
+import logging
 from typing import Dict, List, Any, Optional
 from datetime import datetime
-import logging
 
 from .openrouter_service import get_openrouter_service, cleanup_openrouter_service
 from .mcp_client import get_mcp_client, cleanup_mcp_client
@@ -22,8 +18,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="Web Agent Backend API",
-    description="FastAPI backend middleware for LibreChat -> Backend -> MCP Server",
+    title="Web Agent Backend Middleware",
+    description="Backend middleware for flow control, monitoring, and future interruption capabilities",
     version="2.0.0"
 )
 
@@ -31,9 +27,11 @@ app = FastAPI(
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    logger.info("Starting Web Agent Backend (Middleware)...")
+    logger.info("🚀 Starting Web Agent Backend Middleware...")
+    logger.info("Architecture: LibreChat -> MCP Server (SSE)")
+    logger.info("Backend Role: Monitoring, Logging, Future Flow Control")
     
-    # Check OpenRouter
+    # Check OpenRouter service
     openrouter = get_openrouter_service()
     is_healthy = await openrouter.health_check()
     if is_healthy:
@@ -48,12 +46,11 @@ async def startup_event():
     mcp = get_mcp_client()
     is_mcp_healthy = await mcp.health_check()
     if is_mcp_healthy:
-        logger.info("✓ MCP Server is healthy")
-        tools = await mcp.list_tools()
-        if tools:
-            logger.info(f"✓ Available MCP tools: {[t.get('name') for t in tools]}")
+        logger.info("✓ MCP Server is healthy and reachable")
     else:
         logger.warning("⚠ MCP Server is not responding")
+    
+    logger.info("✅ Backend Middleware ready")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -62,11 +59,10 @@ async def shutdown_event():
     await cleanup_openrouter_service()
     await cleanup_mcp_client()
 
-# CORS: read allowed origins from env (comma-separated)
+# CORS Configuration
 origins_env = os.getenv("CORS_ALLOW_ORIGINS", "")
 allowed_origins = [o.strip() for o in origins_env.split(",") if o.strip()]
 
-# When using wildcard "*", we cannot use credentials
 if allowed_origins and allowed_origins != ["*"]:
     app.add_middleware(
         CORSMiddleware,
@@ -85,22 +81,32 @@ else:
         allow_headers=["*"],
     )
 
+# =============================================================================
+# Root Endpoints
+# =============================================================================
+
 @app.get("/")
 def root():
     """Root endpoint"""
     return JSONResponse({
-        "message": "Web Agent Backend API (Middleware)",
+        "message": "Web Agent Backend Middleware API",
         "version": "2.0.0",
         "status": "running",
-        "architecture": "LibreChat -> Backend -> MCP Server"
+        "architecture": {
+            "frontend": "LibreChat",
+            "mcp_connection": "Direct SSE to MCP Server",
+            "backend_role": "Monitoring, Logging, Future Flow Control"
+        },
+        "note": "LibreChat connects directly to MCP Server via SSE. This backend provides monitoring and optional flow control."
     })
 
 @app.get("/api/health")
 def health():
     """Health check endpoint"""
     return JSONResponse({
-        "status": "ok",
-        "environment": os.getenv("ENVIRONMENT", "unknown")
+        "status": "healthy",
+        "environment": os.getenv("ENVIRONMENT", "unknown"),
+        "timestamp": datetime.utcnow().isoformat()
     })
 
 @app.get("/api/services/health")
@@ -113,315 +119,147 @@ async def services_health():
     mcp_healthy = await mcp.health_check()
     
     return JSONResponse({
-        "backend": {"status": "healthy"},
-        "openrouter": {"status": "healthy" if openrouter_healthy else "unhealthy"},
-        "mcp_server": {"status": "healthy" if mcp_healthy else "unhealthy"}
+        "backend": {
+            "status": "healthy",
+            "role": "middleware"
+        },
+        "openrouter": {
+            "status": "healthy" if openrouter_healthy else "unhealthy",
+            "endpoint": os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        },
+        "mcp_server": {
+            "status": "healthy" if mcp_healthy else "unhealthy",
+            "endpoint": os.getenv("MCP_SERVER_URL", "http://mcp-server:8001"),
+            "transport": "SSE"
+        }
     })
 
-@app.get("/api/mcp/tools")
-async def list_mcp_tools():
-    """List available MCP tools"""
+# =============================================================================
+# MCP Monitoring Endpoints
+# =============================================================================
+
+@app.get("/api/mcp/info")
+async def mcp_info():
+    """Get MCP server information and available tools"""
     mcp = get_mcp_client()
-    tools = await mcp.list_tools()
-    return JSONResponse({"tools": tools})
-
-# =============================================================================
-# In-Memory Storage
-# =============================================================================
-
-messages_store: Dict[str, Dict[str, Any]] = {}
-
-# =============================================================================
-# Pydantic Models
-# =============================================================================
-
-class ChatMessageRequest(BaseModel):
-    text: str
-    model: Optional[str] = None
-    temperature: Optional[float] = 0.7
-    use_mcp_tools: Optional[bool] = True
-
-class MCPToolCallRequest(BaseModel):
-    tool_name: str
-    arguments: Dict[str, Any]
-
-# =============================================================================
-# Chat Endpoints
-# =============================================================================
-
-@app.post("/api/chat/messages")
-async def create_message(request: ChatMessageRequest):
-    """
-    Accept a user message from LibreChat, generate a message_id, and return it.
-    This starts the backend processing in the background.
-    """
-    message_id = str(uuid.uuid4())
-    
-    # Initialize message in store
-    messages_store[message_id] = {
-        "text": request.text,
-        "model": request.model,
-        "temperature": request.temperature,
-        "use_mcp_tools": request.use_mcp_tools,
-        "status": "initialized",
-        "events": [],
-        "done": False,
-        "result": None,
-        "created_at": datetime.utcnow().isoformat()
-    }
-    
-    # Start background processing
-    asyncio.create_task(process_message(message_id))
-    
-    logger.info(f"[{message_id}] Created message: {request.text}")
-    
-    return JSONResponse({
-        "message_id": message_id
-    })
-
-@app.get("/api/chat/messages/{message_id}/events")
-async def stream_message_events(message_id: str):
-    """
-    Stream SSE events for a given message_id.
-    Sends status updates, tokens, tool calls, and completion events.
-    """
-    if message_id not in messages_store:
-        raise HTTPException(status_code=404, detail="Message not found")
-    
-    async def event_generator():
-        """Generate SSE events for this message"""
-        logger.info(f"[{message_id}] SSE client connected")
-        
-        sent_count = 0
-        
-        while True:
-            message_data = messages_store.get(message_id)
-            if not message_data:
-                break
-            
-            # Send any new events
-            events = message_data["events"]
-            while sent_count < len(events):
-                event = events[sent_count]
-                event_type = event["type"]
-                event_data = event["data"]
-                
-                yield {
-                    "event": event_type,
-                    "data": json.dumps(event_data)
-                }
-                
-                if event_type != "token":
-                    logger.info(f"[{message_id}] SSE sent: {event_type}")
-                sent_count += 1
-            
-            # If done, send the done event and close
-            if message_data["done"]:
-                yield {
-                    "event": "done",
-                    "data": json.dumps({})
-                }
-                logger.info(f"[{message_id}] SSE stream complete")
-                break
-            
-            await asyncio.sleep(0.05)
-    
-    return EventSourceResponse(event_generator())
-
-@app.get("/api/chat/messages/{message_id}/status")
-async def get_message_status(message_id: str):
-    """
-    Polling fallback endpoint. Returns current status and all events.
-    """
-    if message_id not in messages_store:
-        raise HTTPException(status_code=404, detail="Message not found")
-    
-    message_data = messages_store[message_id]
-    
-    return JSONResponse({
-        "message_id": message_id,
-        "status": message_data["status"],
-        "events": message_data["events"],
-        "done": message_data["done"],
-        "result": message_data["result"]
-    })
-
-# =============================================================================
-# MCP Tool Call Endpoint
-# =============================================================================
-
-@app.post("/api/mcp/tools/call")
-async def call_mcp_tool(request: MCPToolCallRequest):
-    """
-    Call an MCP tool directly
-    """
-    mcp = get_mcp_client()
-    result = await mcp.call_tool(request.tool_name, request.arguments)
-    
-    if result.get("success"):
-        return JSONResponse(result)
-    else:
-        raise HTTPException(status_code=500, detail=result.get("error", "Tool call failed"))
-
-# =============================================================================
-# Background Processing
-# =============================================================================
-
-async def process_message(message_id: str):
-    """
-    Process a user message by:
-    1. Querying OpenRouter LLM
-    2. Handling any tool calls via MCP
-    3. Streaming the response back
-    """
-    message_data = messages_store[message_id]
-    user_message = message_data["text"]
-    model = message_data.get("model")
-    temperature = message_data.get("temperature", 0.7)
-    use_mcp_tools = message_data.get("use_mcp_tools", True)
     
     try:
-        # Stage 1: Preparing
-        message_data["status"] = "preparing"
-        message_data["events"].append({
-            "type": "status",
-            "data": {"stage": "preparing", "message": "Preparing your request..."}
+        # Get MCP server health
+        is_healthy = await mcp.health_check()
+        
+        return JSONResponse({
+            "mcp_server": {
+                "url": os.getenv("MCP_SERVER_URL", "http://mcp-server:8001"),
+                "transport": "SSE",
+                "healthy": is_healthy,
+                "connection": "Direct from LibreChat via SSE"
+            },
+            "note": "Tools are accessed directly by LibreChat through SSE connection"
         })
-        logger.info(f"[{message_id}] Stage: preparing")
-        
-        # Stage 2: Get MCP tools if enabled
-        tools_schema = None
-        if use_mcp_tools:
-            mcp = get_mcp_client()
-            tools_list = await mcp.list_tools()
-            if tools_list:
-                # Convert MCP tools to OpenAI function calling format
-                tools_schema = []
-                for tool in tools_list:
-                    tools_schema.append({
-                        "type": "function",
-                        "function": {
-                            "name": tool.get("name"),
-                            "description": tool.get("description", ""),
-                            "parameters": tool.get("parameters", {})
-                        }
-                    })
-                logger.info(f"[{message_id}] Loaded {len(tools_schema)} MCP tools")
-        
-        # Stage 3: Querying LLM
-        message_data["status"] = "querying_llm"
-        message_data["events"].append({
-            "type": "status",
-            "data": {"stage": "querying_llm", "message": "Thinking..."}
-        })
-        logger.info(f"[{message_id}] Stage: querying LLM")
-        
-        # Get OpenRouter service
-        openrouter = get_openrouter_service()
-        
-        # Build system prompt
-        system_prompt = """You are a helpful AI assistant. You have access to various tools that can help you answer questions and perform tasks.
-When you need to use a tool, make a function call and wait for the result."""
-        
-        # Build messages for chat
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message}
-        ]
-        
-        # Stream the response
-        full_response = ""
-        token_count = 0
-        tool_calls_made = []
-        
-        async for chunk in openrouter.generate_chat_stream(
-            messages,
-            model=model,
-            temperature=temperature,
-            tools=tools_schema
-        ):
-            if chunk.get("error"):
-                logger.error(f"[{message_id}] LLM error: {chunk['error']}")
-                message_data["events"].append({
-                    "type": "error",
-                    "data": {"message": f"Error: {chunk['error']}"}
-                })
-                message_data["status"] = "error"
-                break
-            
-            if chunk.get("done"):
-                logger.info(f"[{message_id}] LLM response complete. Tokens: {token_count}")
-                
-                # Add final response event
-                message_data["events"].append({
-                    "type": "response_complete",
-                    "data": {
-                        "full_text": full_response,
-                        "token_count": token_count,
-                        "tool_calls": tool_calls_made
-                    }
-                })
-                message_data["status"] = "completed"
-                message_data["result"] = {
-                    "response": full_response,
-                    "token_count": token_count,
-                    "tool_calls": tool_calls_made
-                }
-                break
-            
-            # Handle token
-            token = chunk.get("token")
-            if token:
-                full_response += token
-                token_count += 1
-                
-                message_data["events"].append({
-                    "type": "token",
-                    "data": {"token": token}
-                })
-            
-            # Handle tool calls
-            tool_calls = chunk.get("tool_calls")
-            if tool_calls:
-                logger.info(f"[{message_id}] Tool calls requested: {tool_calls}")
-                
-                # Execute tool calls via MCP
-                for tool_call in tool_calls:
-                    tool_name = tool_call.get("function", {}).get("name")
-                    tool_args = tool_call.get("function", {}).get("arguments", {})
-                    
-                    if isinstance(tool_args, str):
-                        tool_args = json.loads(tool_args)
-                    
-                    # Call MCP tool
-                    mcp = get_mcp_client()
-                    tool_result = await mcp.call_tool(tool_name, tool_args)
-                    
-                    tool_calls_made.append({
-                        "tool": tool_name,
-                        "arguments": tool_args,
-                        "result": tool_result
-                    })
-                    
-                    # Send tool call event
-                    message_data["events"].append({
-                        "type": "tool_call",
-                        "data": {
-                            "tool": tool_name,
-                            "arguments": tool_args,
-                            "result": tool_result
-                        }
-                    })
-        
-        # Mark as done
-        message_data["done"] = True
-        logger.info(f"[{message_id}] Processing complete")
-    
     except Exception as e:
-        logger.error(f"[{message_id}] Error processing message: {e}", exc_info=True)
-        message_data["status"] = "error"
-        message_data["events"].append({
-            "type": "error",
-            "data": {"message": f"An error occurred: {str(e)}"}
+        logger.error(f"Error getting MCP info: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# OpenRouter Monitoring Endpoints
+# =============================================================================
+
+@app.get("/api/openrouter/models")
+async def list_openrouter_models():
+    """List available models from OpenRouter"""
+    openrouter = get_openrouter_service()
+    
+    try:
+        models = await openrouter.list_models()
+        return JSONResponse({
+            "models": models,
+            "count": len(models) if models else 0
         })
-        message_data["done"] = True
+    except Exception as e:
+        logger.error(f"Error listing OpenRouter models: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+# =============================================================================
+# Future Flow Control Endpoints (Placeholders)
+# =============================================================================
+
+class InterruptionRequest(BaseModel):
+    """Request to interrupt an ongoing conversation"""
+    conversation_id: str
+    reason: Optional[str] = None
+
+@app.post("/api/flow/interrupt")
+async def interrupt_conversation(request: InterruptionRequest):
+    """
+    Interrupt an ongoing conversation (Future feature).
+    
+    This is a placeholder for future functionality where the backend
+    can interrupt and redirect LLM flows.
+    """
+    logger.info(f"Interruption requested for conversation: {request.conversation_id}")
+    
+    return JSONResponse({
+        "success": True,
+        "conversation_id": request.conversation_id,
+        "message": "Interruption feature not yet implemented",
+        "note": "This endpoint is a placeholder for future flow control capabilities"
+    })
+
+class FlowRedirectRequest(BaseModel):
+    """Request to redirect conversation flow"""
+    conversation_id: str
+    new_instructions: str
+    context: Optional[Dict[str, Any]] = None
+
+@app.post("/api/flow/redirect")
+async def redirect_flow(request: FlowRedirectRequest):
+    """
+    Redirect conversation flow (Future feature).
+    
+    This is a placeholder for future functionality where the backend
+    can redirect conversations to different flows or instructions.
+    """
+    logger.info(f"Flow redirect requested for conversation: {request.conversation_id}")
+    
+    return JSONResponse({
+        "success": True,
+        "conversation_id": request.conversation_id,
+        "new_instructions": request.new_instructions,
+        "message": "Flow redirect feature not yet implemented",
+        "note": "This endpoint is a placeholder for future flow control capabilities"
+    })
+
+# =============================================================================
+# Logging and Monitoring Endpoints
+# =============================================================================
+
+@app.get("/api/logs/stats")
+async def get_log_stats():
+    """
+    Get statistics about system usage (Future feature).
+    
+    This is a placeholder for monitoring conversation patterns,
+    tool usage, and system performance.
+    """
+    return JSONResponse({
+        "message": "Log statistics not yet implemented",
+        "note": "This endpoint will provide insights into system usage, popular tools, and performance metrics"
+    })
+
+# =============================================================================
+# Development/Debug Endpoints
+# =============================================================================
+
+@app.get("/api/debug/config")
+async def debug_config():
+    """Debug endpoint to view current configuration (development only)"""
+    if os.getenv("ENVIRONMENT") != "development":
+        raise HTTPException(status_code=403, detail="Debug endpoints only available in development")
+    
+    return JSONResponse({
+        "environment": os.getenv("ENVIRONMENT"),
+        "debug": os.getenv("DEBUG"),
+        "mcp_server_url": os.getenv("MCP_SERVER_URL"),
+        "openrouter_base_url": os.getenv("OPENROUTER_BASE_URL"),
+        "cors_origins": os.getenv("CORS_ALLOW_ORIGINS"),
+    })

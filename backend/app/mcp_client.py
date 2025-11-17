@@ -1,11 +1,13 @@
 """
-MCP Client for communicating with the MCP Server
+MCP Client for monitoring and communicating with the MCP Server
+
+Note: In the FastMCP/SSE architecture, LibreChat connects directly to the MCP server.
+This client is used by the backend middleware for monitoring and health checks.
 """
 
 import os
 import httpx
-import json
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,100 +18,55 @@ MCP_TIMEOUT = float(os.getenv("MCP_TIMEOUT", "60.0"))
 
 
 class MCPClient:
-    """Client for interacting with MCP Server"""
+    """Client for monitoring MCP Server health and status"""
     
     def __init__(self, base_url: str = MCP_SERVER_URL):
         self.base_url = base_url.rstrip("/")
         self.client = httpx.AsyncClient(timeout=MCP_TIMEOUT)
     
     async def health_check(self) -> bool:
-        """Check if MCP server is available"""
+        """
+        Check if MCP server is available and healthy.
+        
+        Note: This checks the /health endpoint. The actual MCP protocol
+        communication happens via SSE at /sse endpoint.
+        """
         try:
+            # Try to access the SSE endpoint (FastMCP health check)
             response = await self.client.get(f"{self.base_url}/health")
             return response.status_code == 200
+        except httpx.ConnectError:
+            logger.error(f"MCP health check failed: Cannot connect to {self.base_url}")
+            return False
         except Exception as e:
             logger.error(f"MCP health check failed: {e}")
             return False
     
-    async def list_tools(self) -> List[Dict[str, Any]]:
-        """List available tools from MCP server"""
-        try:
-            response = await self.client.get(f"{self.base_url}/tools")
-            if response.status_code == 200:
-                return response.json()
-            return []
-        except Exception as e:
-            logger.error(f"Failed to list MCP tools: {e}")
-            return []
-    
-    async def call_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def get_server_info(self) -> Dict[str, Any]:
         """
-        Call a tool on the MCP server
+        Get information about the MCP server.
         
-        Args:
-            tool_name: Name of the tool to call
-            arguments: Dictionary of arguments for the tool
-        
-        Returns:
-            Dictionary containing the tool's response
+        Returns basic server info for monitoring purposes.
         """
         try:
-            logger.info(f"Calling MCP tool: {tool_name} with args: {arguments}")
-            
-            response = await self.client.post(
-                f"{self.base_url}/tools/{tool_name}",
-                json={"arguments": arguments}
-            )
-            
+            response = await self.client.get(f"{self.base_url}/health")
             if response.status_code == 200:
-                result = response.json()
-                logger.info(f"MCP tool {tool_name} succeeded")
-                return {"success": True, "result": result}
-            else:
-                error_msg = f"MCP tool call failed with status {response.status_code}"
-                logger.error(error_msg)
-                return {"success": False, "error": error_msg}
-        
-        except httpx.TimeoutException:
-            error_msg = f"MCP tool call timed out after {MCP_TIMEOUT}s"
-            logger.error(error_msg)
-            return {"success": False, "error": error_msg}
+                return {
+                    "healthy": True,
+                    "url": self.base_url,
+                    "transport": "SSE",
+                    "sse_endpoint": f"{self.base_url}/sse"
+                }
+            return {
+                "healthy": False,
+                "error": f"Unexpected status code: {response.status_code}"
+            }
         except Exception as e:
-            error_msg = f"Error calling MCP tool: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            return {"success": False, "error": error_msg}
-    
-    async def get_resource(self, resource_uri: str) -> Dict[str, Any]:
-        """
-        Get a resource from the MCP server
-        
-        Args:
-            resource_uri: URI of the resource (e.g., "config://server")
-        
-        Returns:
-            Dictionary containing the resource data
-        """
-        try:
-            logger.info(f"Getting MCP resource: {resource_uri}")
-            
-            response = await self.client.get(
-                f"{self.base_url}/resources",
-                params={"uri": resource_uri}
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                logger.info(f"MCP resource {resource_uri} retrieved")
-                return {"success": True, "data": result}
-            else:
-                error_msg = f"MCP resource retrieval failed with status {response.status_code}"
-                logger.error(error_msg)
-                return {"success": False, "error": error_msg}
-        
-        except Exception as e:
-            error_msg = f"Error getting MCP resource: {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            return {"success": False, "error": error_msg}
+            logger.error(f"Failed to get MCP server info: {e}")
+            return {
+                "healthy": False,
+                "error": str(e)
+            }
     
     async def close(self):
         """Close the HTTP client"""
@@ -134,4 +91,3 @@ async def cleanup_mcp_client():
     if _mcp_client is not None:
         await _mcp_client.close()
         _mcp_client = None
-

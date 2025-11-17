@@ -1,481 +1,503 @@
 # Web Agent Architecture
 
-This document describes the architecture and design of the Web Agent application.
+This document provides detailed information about the Web Agent architecture, which follows the sagemind pattern of using FastMCP with direct SSE connections.
 
-## 🏗️ System Overview
+## Table of Contents
 
-The Web Agent is a three-tier architecture combining a modern chat interface (LibreChat), a middleware backend, and a tool server using the Model Context Protocol (MCP).
+1. [Overview](#overview)
+2. [Architecture Pattern](#architecture-pattern)
+3. [Components](#components)
+4. [Data Flow](#data-flow)
+5. [Communication Protocols](#communication-protocols)
+6. [Comparison with Sagemind](#comparison-with-sagemind)
+7. [Future Enhancements](#future-enhancements)
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         User Browser                             │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          │ HTTP/WebSocket
-                          ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                     LibreChat Frontend                           │
-│  - React-based UI                                               │
-│  - Chat interface                                               │
-│  - File uploads                                                 │
-│  - Conversation management                                      │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          │ REST API
-                          ↓
-┌─────────────────────────────────────────────────────────────────┐
-│                    Backend (FastAPI)                            │
-│  - Message coordination                                         │
-│  - Stream management                                            │
-│  - LLM request routing                                          │
-│  - MCP tool orchestration                                       │
-└──────────────┬─────────────────────────────┬────────────────────┘
-               │                             │
-               │ HTTPS                       │ HTTP
-               ↓                             ↓
-┌────────────────────────┐     ┌──────────────────────────────────┐
-│   OpenRouter API       │     │       MCP Server                 │
-│                        │     │  (FastMCP - Python)              │
-│  - Claude 3.5 Sonnet   │     │                                  │
-│  - GPT-4 Turbo         │     │  Tools:                          │
-│  - Llama 3.1           │     │  - get_current_time              │
-│  - Gemini Pro          │     │  - calculate                     │
-│  - And more...         │     │  - search_web                    │
-└────────────────────────┘     │  - get_weather                   │
-                               │  - create_task                   │
-                               │  - analyze_text                  │
-                               │                                  │
-                               │  Resources:                      │
-                               │  - config://server               │
-                               │  - info://capabilities           │
-                               └──────────────────────────────────┘
+## Overview
 
-Supporting Services:
-┌──────────────────┐
-│    MongoDB       │
-│  - User data     │
-│  - Conversations │
-└──────────────────┘
-```
+Web Agent implements a modern chat interface with AI capabilities using:
+- **LibreChat**: Web frontend
+- **FastMCP**: Tool server with SSE transport
+- **OpenRouter**: Multi-model LLM provider
+- **Backend Middleware**: Monitoring and future flow control
 
-## 🔄 Data Flow
+### Key Design Principles
 
-### 1. User Message Processing
+1. **Direct MCP Connection**: LibreChat connects directly to MCP server via SSE
+2. **Modular Tools**: Tools organized by domain (tools, web, tasks)
+3. **Type Safety**: Pydantic models and type annotations throughout
+4. **Extensibility**: Easy to add new tools and capabilities
+5. **Observability**: Backend middleware for monitoring and debugging
+
+## Architecture Pattern
+
+### Traditional Architecture (Not Used)
 
 ```
-User types message
-    ↓
-LibreChat sends to Backend
-    ↓
-Backend creates message_id and returns it
-    ↓
-User connects to SSE stream (/api/chat/messages/{id}/events)
-    ↓
-Backend processes in background:
-    1. Checks if MCP tools should be available
-    2. Lists available MCP tools
-    3. Formats tools for LLM (OpenAI function calling format)
-    4. Sends request to OpenRouter with tools
-    ↓
-OpenRouter streams response
-    ↓
-Backend forwards tokens to SSE stream
-    ↓
-If LLM requests tool call:
-    Backend → MCP Server (HTTP POST)
-    ↓
-    MCP Server executes tool
-    ↓
-    Returns result to Backend
-    ↓
-    Backend includes result in conversation
-    ↓
-    Continues streaming to user
-    ↓
-Stream completes
+┌──────────┐       ┌──────────┐       ┌──────────┐
+│LibreChat │──────>│  Backend │──────>│   MCP    │
+└──────────┘  HTTP └──────────┘  HTTP └──────────┘
+                         │
+                         v
+                   ┌──────────┐
+                   │    LLM   │
+                   └──────────┘
 ```
 
-### 2. Tool Call Flow
+Problems:
+- Backend acts as a proxy for all requests
+- Increased latency
+- Complex request/response handling
+- Backend becomes a bottleneck
+
+### FastMCP/SSE Architecture (Used - Sagemind Pattern)
 
 ```
-LLM decides to use a tool
-    ↓
-Sends tool_call in response stream
-    ↓
-Backend receives tool_call
-    {
-      "function": {
-        "name": "calculate",
-        "arguments": {"expression": "2+2"}
-      }
-    }
-    ↓
-Backend forwards to MCP Server
-    POST /tools/calculate
-    Body: {"arguments": {"expression": "2+2"}}
-    ↓
-MCP Server executes tool
-    ↓
-Returns result
-    {"success": true, "result": "Result: 4"}
-    ↓
-Backend adds tool result to conversation
-    ↓
-Continues streaming to user
+┌────────────────┐
+│   LibreChat    │
+└────────┬───────┘
+         │
+         │ SSE (Direct)
+         v
+┌────────────────┐         ┌────────────────┐
+│   MCP Server   │         │    Backend     │
+│  (FastMCP/SSE) │         │  (Middleware)  │
+└────────┬───────┘         └────────┬───────┘
+         │                          │
+         │ Tool Execution           │ Monitoring
+         v                          v
+    ┌────────┐              ┌────────────┐
+    │  Tools │              │ OpenRouter │
+    └────────┘              └────────────┘
 ```
 
-## 📦 Component Details
+Benefits:
+- Low latency (direct connection)
+- Real-time streaming
+- Backend as optional middleware
+- Clean separation of concerns
 
-### LibreChat (Frontend)
+## Components
 
-**Technology:** React, Node.js  
-**Purpose:** User interface for chat interactions  
-**Port:** 3080
+### 1. LibreChat
 
-**Key Features:**
-- Modern, responsive chat UI
-- Multiple conversation support
-- File upload capabilities
-- Model selection
-- User authentication
+**Role**: Web UI and conversation management
 
-**Configuration:** `librechat.yaml`
+**Configuration** (`librechat.yaml`):
+```yaml
+endpoints:
+  custom:
+    - name: "OpenRouter"
+      type: openai
+      baseURL: "https://openrouter.ai/api/v1"
+      apiKey: "${OPENROUTER_API_KEY}"
 
-### Backend (Middleware)
+mcpServers:
+  web-agent-mcp:
+    type: sse
+    url: "http://mcp-server:8001/sse"
+    startup: true
+```
 
-**Technology:** FastAPI (Python)  
-**Purpose:** Coordinate between LibreChat, OpenRouter, and MCP Server  
-**Port:** 8000
+**Key Features**:
+- Connects to OpenRouter for LLM inference
+- Connects to MCP server via SSE for tools
+- Manages conversations and user sessions
+- Handles file uploads
 
-**Key Responsibilities:**
-1. Message orchestration
-2. Server-Sent Events (SSE) streaming
-3. OpenRouter API integration
-4. MCP tool discovery and execution
-5. Error handling and logging
-6. CORS management
+### 2. MCP Server (FastMCP)
 
-**Key Files:**
-- `backend/app/main.py` - Main application
-- `backend/app/openrouter_service.py` - OpenRouter client
-- `backend/app/mcp_client.py` - MCP server client
+**Role**: Provide tools to the LLM via MCP protocol
 
-**API Endpoints:**
-- `GET /` - Root endpoint
-- `GET /api/health` - Health check
+**Implementation** (`mcp-server/server.py`):
+```python
+from fastmcp import FastMCP
+
+mcp = FastMCP("Web-Agent-MCP", INSTRUCTIONS)
+
+# Tools registered from modular APIs
+tools_api = ToolsAPI(mcp)
+web_api = WebAPI(mcp)
+tasks_api = TasksAPI(mcp)
+
+# Run with SSE transport
+mcp.run(transport="sse", host=HOST, port=PORT)
+```
+
+**Transport**: SSE (Server-Sent Events)
+- LibreChat initiates SSE connection to `/sse`
+- Bidirectional communication for tool calls
+- Real-time streaming of results
+
+**Tool Organization**:
+```
+mcp-server/
+├── api/
+│   ├── tools.py    # Basic: time, calc, text analysis
+│   ├── web.py      # Web: search, weather
+│   └── tasks.py    # Task management
+└── server.py       # FastMCP initialization
+```
+
+### 3. Backend Middleware
+
+**Role**: Optional monitoring and future flow control
+
+**Purpose**:
+- Health checks for all services
+- OpenRouter API wrapper
+- Logging and analytics
+- **Future**: Interrupt and redirect conversations
+- **Future**: Custom processing pipelines
+
+**Key Endpoints**:
+- `GET /api/health` - Backend health
 - `GET /api/services/health` - All services health
-- `POST /api/chat/messages` - Create message
-- `GET /api/chat/messages/{id}/events` - SSE stream
-- `GET /api/chat/messages/{id}/status` - Polling fallback
-- `GET /api/mcp/tools` - List MCP tools
-- `POST /api/mcp/tools/call` - Call MCP tool directly
+- `GET /api/mcp/info` - MCP server information
+- `POST /api/flow/interrupt` - (Placeholder) Interrupt conversation
+- `POST /api/flow/redirect` - (Placeholder) Redirect flow
 
-### MCP Server (Tools)
+**Why It's Separate**:
+- LibreChat → MCP connection is direct for performance
+- Backend doesn't proxy tool calls
+- Backend focuses on monitoring and control plane
+- Allows future advanced features without affecting core flow
 
-**Technology:** FastMCP (Python)  
-**Purpose:** Provide tools and resources to the LLM  
-**Port:** 8001
+### 4. MongoDB
 
-**Architecture:** Based on Model Context Protocol (MCP)
+**Role**: Persistence layer for LibreChat
 
-**Tools Provided:**
-1. **get_current_time()** - Returns current date/time
-2. **calculate(expression)** - Safe math evaluation
-3. **search_web(query, num_results)** - Web search (placeholder)
-4. **get_weather(location)** - Weather info (placeholder)
-5. **create_task(title, description, priority)** - Task management
-6. **analyze_text(text, analysis_type)** - Text analysis
+**Stores**:
+- User accounts
+- Conversations
+- Files and attachments
+- Session data
 
-**Resources Provided:**
-1. **config://server** - Server configuration
-2. **info://capabilities** - Capability information
+### 5. OpenRouter
 
-**Tool Registration:**
+**Role**: LLM provider
+
+**Features**:
+- Multiple model support (Claude, GPT-4, Llama, etc.)
+- Pay-per-use pricing
+- Unified API interface
+- Model fallbacks
+
+## Data Flow
+
+### Normal Conversation Flow
+
+```
+1. User sends message
+   ┌──────────┐
+   │ User     │
+   └────┬─────┘
+        │ "What time is it?"
+        v
+   ┌──────────────┐
+   │ LibreChat    │
+   └────┬─────────┘
+        │
+        │ (a) Send to OpenRouter
+        v
+   ┌──────────────┐
+   │ OpenRouter   │ LLM decides to call tool
+   └────┬─────────┘
+        │ "Call get_current_time()"
+        v
+   ┌──────────────┐
+   │ LibreChat    │
+   └────┬─────────┘
+        │ (b) SSE to MCP
+        v
+   ┌──────────────┐
+   │ MCP Server   │ Execute tool
+   └────┬─────────┘
+        │ "2024-01-15 14:30:45"
+        v
+   ┌──────────────┐
+   │ LibreChat    │
+   └────┬─────────┘
+        │ (c) Send result to OpenRouter
+        v
+   ┌──────────────┐
+   │ OpenRouter   │ Generate response
+   └────┬─────────┘
+        │ "It is 2:30 PM on January 15, 2024"
+        v
+   ┌──────────────┐
+   │ LibreChat    │
+   └────┬─────────┘
+        │
+        v
+   ┌──────────┐
+   │ User     │
+   └──────────┘
+```
+
+### Tool Execution Detail
+
+```
+LibreChat                    MCP Server
+    │                            │
+    │ SSE Connection Established │
+    ├───────────────────────────>│
+    │                            │
+    │ JSON-RPC Request           │
+    │ {                          │
+    │   "method": "tools/call",  │
+    │   "params": {              │
+    │     "name": "calculate",   │
+    │     "arguments": {         │
+    │       "expression": "2+2"  │
+    │     }                      │
+    │   }                        │
+    │ }                          │
+    ├───────────────────────────>│
+    │                            │ Execute tool
+    │                            │ calculate("2+2")
+    │                            │
+    │ JSON-RPC Response          │
+    │ {                          │
+    │   "result": {              │
+    │     "content": [{          │
+    │       "type": "text",      │
+    │       "text": "Result: 4"  │
+    │     }]                     │
+    │   }                        │
+    │ }                          │
+    │<───────────────────────────┤
+    │                            │
+```
+
+## Communication Protocols
+
+### SSE (Server-Sent Events)
+
+**Why SSE?**
+- Native browser support
+- Automatic reconnection
+- Efficient for server-to-client streaming
+- Simpler than WebSockets for one-way streams
+
+**Endpoint**: `http://mcp-server:8001/sse`
+
+**Protocol**: MCP over SSE
+- Follows Model Context Protocol specification
+- JSON-RPC 2.0 messages
+- Bidirectional communication via SSE
+
+### HTTP REST
+
+**Backend API**: Standard REST endpoints
+- Health checks
+- Service monitoring
+- Future control plane operations
+
+## Comparison with Sagemind
+
+### Similarities
+
+1. **FastMCP with SSE**: Both use FastMCP library with SSE transport
+2. **Direct Connection**: LibreChat connects directly to MCP server
+3. **Modular APIs**: Tools organized in separate API modules
+4. **OpenRouter**: Both use OpenRouter for LLM access
+5. **Docker Compose**: Similar deployment patterns
+
+### Differences
+
+| Aspect | Sagemind | Web Agent |
+|--------|----------|-----------|
+| **Domain** | Crypto trading bot management | General-purpose web agent |
+| **Tools** | Trading: balances, configs, transfers, market data | General: time, calc, web search, tasks |
+| **Backend** | No separate backend | Backend middleware for monitoring |
+| **Purpose** | Specific to crypto trading | General-purpose extensible |
+| **Additional Services** | run-python-mcp for code execution | None (can be added) |
+
+### Architecture Inheritance
+
+**From Sagemind**:
 ```python
-@mcp.tool()
-def tool_name(param: str) -> ReturnType:
-    """Tool description"""
-    # Implementation
-    return result
+# Sagemind pattern
+mcp = FastMCP("SageBot MCP", INSTRUCTIONS)
+
+# Tool registration via class
+class BotAPI:
+    def __init__(self, mcp: FastMCP):
+        self.mcp = mcp
+        self._register_tools()
+    
+    def _register_tools(self):
+        self.mcp.tool()(self.get_balances)
+
+bot_api = BotAPI(mcp)
+
+# Run with SSE
+mcp.run(transport="sse", host=HOST, port=PORT)
 ```
 
-### OpenRouter (LLM Provider)
-
-**Type:** External API  
-**Purpose:** Access to multiple LLM models  
-**URL:** https://openrouter.ai/api/v1
-
-**Supported Models:**
-- Anthropic Claude (3.5 Sonnet, 3 Opus, 3 Haiku)
-- OpenAI GPT (4 Turbo, 4, 3.5)
-- Meta Llama (3.1 - 8B, 70B, 405B)
-- Google Gemini (Pro, Pro Vision)
-- Mistral (Large, Medium)
-- And 100+ more models
-
-**Key Features:**
-- Unified API for multiple providers
-- Pay-as-you-go pricing
-- Usage tracking and analytics
-- Rate limiting and quotas
-
-### MongoDB
-
-**Type:** Database  
-**Purpose:** Store user data and conversations  
-**Port:** 27017
-
-**Collections:**
-- users
-- conversations
-- messages
-- files
-
-## 🔐 Security Architecture
-
-### Authentication Flow
-
-```
-User registers/logs in
-    ↓
-LibreChat generates JWT token
-    ↓
-Token stored in browser (httpOnly cookie)
-    ↓
-Every request includes token
-    ↓
-LibreChat validates token
-    ↓
-If valid, processes request
-```
-
-### API Key Management
-
-- OpenRouter API key stored in environment variable
-- Never exposed to frontend
-- Backend manages all external API calls
-- Rate limiting at multiple levels
-
-### CORS Configuration
-
-Development:
-```
-CORS_ALLOW_ORIGINS=*
-```
-
-Production:
-```
-CORS_ALLOW_ORIGINS=https://yourdomain.com
-```
-
-## 🔄 Message State Management
-
-The backend maintains in-memory state for active messages:
-
+**Web Agent Implementation**:
 ```python
-messages_store = {
-    "message_id": {
-        "text": "user message",
-        "status": "querying_llm",
-        "events": [
-            {"type": "status", "data": {...}},
-            {"type": "token", "data": {"token": "Hello"}},
-            {"type": "tool_call", "data": {...}}
-        ],
-        "done": False,
-        "result": None
-    }
-}
+# Same pattern
+mcp = FastMCP("Web-Agent-MCP", INSTRUCTIONS)
+
+class ToolsAPI:
+    def __init__(self, mcp: FastMCP):
+        self.mcp = mcp
+        self._register_tools()
+    
+    def _register_tools(self):
+        self.mcp.tool()(self.calculate)
+
+tools_api = ToolsAPI(mcp)
+
+# Same SSE transport
+mcp.run(transport="sse", host=HOST, port=PORT)
 ```
 
-**States:**
-1. `initialized` - Message created
-2. `preparing` - Preparing request
-3. `querying_llm` - Waiting for LLM response
-4. `completed` - Successfully completed
-5. `error` - Error occurred
+## Future Enhancements
 
-## 📊 Event Types (SSE)
+### 1. Flow Interruption (Backend Middleware)
 
-The backend streams different event types:
+**Planned Implementation**:
+```python
+@app.post("/api/flow/interrupt")
+async def interrupt_conversation(conversation_id: str):
+    # Interrupt ongoing LLM generation
+    # Redirect to different instructions
+    # Inject context or constraints
+    pass
+```
 
-1. **status** - Stage updates
-   ```json
-   {"stage": "preparing", "message": "Preparing your request..."}
-   ```
+**Use Cases**:
+- Emergency stop for sensitive operations
+- Budget/rate limiting
+- Context switching
+- User intervention
 
-2. **token** - Text chunks from LLM
-   ```json
-   {"token": "Hello"}
-   ```
+### 2. Additional MCP Servers
 
-3. **tool_call** - Tool execution
-   ```json
-   {
-     "tool": "calculate",
-     "arguments": {"expression": "2+2"},
-     "result": {"success": true, "result": "4"}
-   }
-   ```
+Following sagemind's pattern of multiple MCP servers:
 
-4. **response_complete** - Final response
-   ```json
-   {
-     "full_text": "complete response",
-     "token_count": 42,
-     "tool_calls": []
-   }
-   ```
+```yaml
+# librechat.yaml
+mcpServers:
+  web-agent-mcp:
+    type: sse
+    url: "http://mcp-server:8001/sse"
+  
+  code-execution-mcp:
+    type: sse
+    url: "http://code-executor:8002/sse"
+  
+  database-mcp:
+    type: sse
+    url: "http://db-tools:8003/sse"
+```
 
-5. **error** - Error occurred
-   ```json
-   {"message": "Error description"}
-   ```
+### 3. Advanced Tool Integration
 
-6. **done** - Stream complete
-   ```json
-   {}
-   ```
+**Real APIs**:
+- Google Custom Search
+- OpenWeatherMap
+- Database connections
+- File system operations
+- API integrations
 
-## 🚀 Scaling Considerations
+### 4. Authentication & Authorization
 
-### Current Limitations
+- Tool-level permissions
+- User role-based access
+- API key management
+- Audit logging
 
-1. **In-memory state** - Messages stored in RAM
-   - Not persistent across restarts
-   - Limited by server memory
+### 5. Observability
+
+- Distributed tracing
+- Metrics collection
+- Log aggregation
+- Performance monitoring
+
+## Best Practices
+
+### Adding New Tools
+
+1. **Create module** in `mcp-server/api/`
+2. **Follow pattern**:
+   ```python
+   from fastmcp import FastMCP
+   from typing import Annotated
    
-2. **Single instance** - No load balancing
-   
-3. **No queue system** - Direct processing
+   class MyAPI:
+       def __init__(self, mcp: FastMCP):
+           self.mcp = mcp
+           self._register_tools()
+       
+       def _register_tools(self):
+           self.mcp.tool()(self.my_tool)
+       
+       def my_tool(
+           self,
+           param: Annotated[str, "Description"]
+       ) -> dict:
+           """Tool description"""
+           return {"result": "value"}
+   ```
+3. **Register** in `server.py`
+4. **Test** via LibreChat
 
-### Scaling Improvements
+### Security Considerations
 
-For production deployment:
+1. **Input Validation**: Always validate tool inputs
+2. **Sandboxing**: Isolate tool execution
+3. **Rate Limiting**: Prevent abuse
+4. **Audit Logging**: Track tool usage
+5. **Error Handling**: Don't leak sensitive info in errors
 
-1. **Use Redis for state**
-   - Replace in-memory dict with Redis
-   - Enable multiple backend instances
-   - Persist state across restarts
+### Performance Optimization
 
-2. **Add message queue**
-   - Use RabbitMQ or Redis Queue
-   - Decouple request handling from processing
-   - Better load distribution
+1. **Caching**: Cache expensive operations
+2. **Async**: Use async/await for I/O
+3. **Connection Pooling**: Reuse connections
+4. **Lazy Loading**: Load resources on demand
 
-3. **Implement caching**
-   - Cache MCP tool results
-   - Cache OpenRouter responses
-   - Reduce API calls and costs
+## Debugging
 
-4. **Add rate limiting**
-   - Per-user rate limits
-   - Per-IP rate limits
-   - Circuit breakers for external APIs
+### Enable Debug Logging
 
-## 🔧 Extension Points
-
-### Adding New MCP Tools
-
-1. Edit `mcp-server/server.py`
-2. Add tool function with `@mcp.tool()` decorator
-3. Restart MCP server
-4. Tools automatically available to LLM
-
-### Adding New LLM Models
-
-1. Edit `librechat.yaml`
-2. Add model to `endpoints.custom.models.default`
-3. Restart LibreChat
-4. Model available in UI dropdown
-
-### Custom Backend Logic
-
-1. Edit `backend/app/main.py`
-2. Add new endpoints or modify `process_message()`
-3. Can add:
-   - Custom preprocessing
-   - Response filtering
-   - Additional logging
-   - Integration with other services
-
-## 📈 Monitoring and Observability
-
-### Logs
-
-All components log to stdout:
 ```bash
-docker-compose -f dev.yaml logs -f
+# In .env
+DEBUG=true
+LOG_LEVEL=DEBUG
 ```
 
-### Health Checks
+### Monitor SSE Connection
 
-- Backend: `GET /api/health`
-- Services: `GET /api/services/health`
-- MCP Tools: `GET /api/mcp/tools`
+```bash
+# Watch SSE endpoint
+curl -N http://localhost:8001/sse
 
-### Metrics (Future)
+# Check MCP health
+curl http://localhost:8001/health
+```
 
-Could add:
-- Prometheus metrics
-- Request latency
-- Token usage
-- Error rates
-- Tool call frequency
+### Inspect Backend
 
-## 🎯 Design Decisions
+```bash
+# Backend health
+curl http://localhost:8000/api/services/health
 
-### Why LibreChat?
+# View config (dev only)
+curl http://localhost:8000/api/debug/config
+```
 
-- Mature, production-ready UI
-- Built-in authentication
-- Multiple model support
-- Active community
-- Regular updates
+## Conclusion
 
-### Why OpenRouter?
+This architecture provides:
+- ✅ Low latency direct MCP connections
+- ✅ Modular, extensible tool system
+- ✅ Optional middleware for advanced features
+- ✅ Production-ready with monitoring
+- ✅ Based on proven sagemind pattern
+- ✅ Easy to understand and extend
 
-- Access to many models via one API
-- Pay-as-you-go pricing
-- No vendor lock-in
-- Usage analytics
-- Rate limiting handled
-
-### Why FastMCP?
-
-- Simple tool definition
-- Python ecosystem
-- Easy to extend
-- Type safety
-- Standard protocol
-
-### Why FastAPI (Backend)?
-
-- Async support
-- SSE streaming
-- Auto-generated docs
-- Type validation
-- Fast performance
-
-## 🔄 Future Enhancements
-
-Potential improvements:
-
-1. **Persistent Sessions** - Use Redis/PostgreSQL
-2. **WebSocket Support** - Real-time bidirectional
-3. **Multi-user Chat** - Shared conversations
-4. **Voice Input/Output** - Speech-to-text, text-to-speech
-5. **Advanced Tools** - Browser automation, code execution
-6. **RAG Integration** - Vector database for knowledge base
-7. **Fine-tuned Models** - Custom model support
-8. **Analytics Dashboard** - Usage statistics and insights
-
-## 📚 References
-
-- [LibreChat](https://www.librechat.ai)
-- [OpenRouter](https://openrouter.ai)
-- [FastMCP](https://github.com/jlowin/fastmcp)
-- [Model Context Protocol](https://modelcontextprotocol.io)
-- [FastAPI](https://fastapi.tiangolo.com)
-- [Server-Sent Events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events)
-
+For questions or contributions, see the main [README.md](README.md).
