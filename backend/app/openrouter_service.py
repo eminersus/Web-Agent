@@ -131,6 +131,10 @@ class OpenRouterService:
                         yield {"done": True}
                         break
                     
+                    # Skip OpenRouter processing messages
+                    if "OPENROUTER PROCESSING" in line:
+                        continue
+                    
                     try:
                         chunk = json.loads(line)
                         
@@ -148,13 +152,26 @@ class OpenRouterService:
                                     "done": False
                                 }
                             
-                            # Handle tool calls
+                            # Handle tool calls (streaming format)
                             tool_calls = delta.get("tool_calls")
                             if tool_calls:
+                                # Log what we're receiving
+                                logger.debug(f"Received tool_calls delta: {tool_calls}")
                                 yield {
                                     "tool_calls": tool_calls,
                                     "done": False
                                 }
+                            
+                            # Also check for full message tool_calls (non-streaming)
+                            if not tool_calls and choices:
+                                message = choices[0].get("message", {})
+                                message_tool_calls = message.get("tool_calls")
+                                if message_tool_calls:
+                                    logger.debug(f"Received message tool_calls: {message_tool_calls}")
+                                    yield {
+                                        "tool_calls": message_tool_calls,
+                                        "done": False
+                                    }
                             
                             # Handle completion
                             if finish_reason:

@@ -242,6 +242,10 @@ class EbayBrowseAPI:
             ...     limit=25
             ... )
         """
+        # Ensure limit and offset are integers (in case they come as strings from tool calls)
+        limit = int(limit) if not isinstance(limit, int) else limit
+        offset = int(offset) if not isinstance(offset, int) else offset
+        
         # Ensure we have a valid token
         if not self._ensure_valid_token():
             logger.warning("Unable to obtain valid eBay access token")
@@ -310,6 +314,8 @@ class EbayBrowseAPI:
             if response.status_code == 200:
                 data = response.json()
                 logger.info(f"eBay search successful: {data.get('total', 0)} items found")
+                
+                # Return raw JSON data for LLM to process
                 return data
             else:
                 # Parse error response
@@ -366,4 +372,112 @@ class EbayBrowseAPI:
                 "message": str(e),
                 "type": type(e).__name__
             }
+    
+    def _format_for_display(self, data: Dict[str, Any], requested_limit: int) -> str:
+        """
+        Format eBay API response for beautiful display in LibreChat UI.
+        Creates markdown-formatted cards with images and product info.
+        
+        Args:
+            data: Raw eBay API response
+            requested_limit: Number of items requested (for display purposes)
+        
+        Returns:
+            Markdown formatted string for direct display
+        """
+        items = data.get('itemSummaries', [])
+        total = data.get('total', 0)
+        
+        # Create markdown formatted display
+        display_parts = []
+        
+        # Header with search summary
+        display_parts.append(f"# 🛍️ eBay Search Results\n\n")
+        display_parts.append(f"**Found {total:,} items** (showing {len(items)})\n\n")
+        display_parts.append("---\n\n")
+        
+        # Format each item as a card
+        for idx, item in enumerate(items[:requested_limit], 1):
+            card = self._format_item_card(item, idx)
+            display_parts.append(card)
+        
+        # Add pagination info if there are more results
+        if total > len(items):
+            remaining = total - len(items)
+            display_parts.append(f"\n---\n\n")
+            display_parts.append(f"💡 **{remaining:,} more items available** - Increase limit or use offset for pagination\n\n")
+        
+        # Return the markdown string directly
+        return "".join(display_parts)
+    
+    def _format_item_card(self, item: Dict[str, Any], index: int) -> str:
+        """
+        Format a single eBay item as a markdown card.
+        
+        Args:
+            item: Item data from eBay API
+            index: Item number in the list
+        
+        Returns:
+            Markdown formatted card
+        """
+        # Extract item details
+        title = item.get('title', 'No title')
+        price_obj = item.get('price', {})
+        price = price_obj.get('value', 'N/A')
+        currency = price_obj.get('currency', '')
+        price_display = f"${price} {currency}" if price != 'N/A' else 'Price not available'
+        
+        condition = item.get('condition', 'N/A')
+        image = item.get('image', {})
+        image_url = image.get('imageUrl', '')
+        item_url = item.get('itemWebUrl', '#')
+        
+        # Seller info
+        seller = item.get('seller', {})
+        seller_name = seller.get('username', 'Unknown')
+        seller_feedback = seller.get('feedbackPercentage', 'N/A')
+        
+        # Location
+        location = item.get('itemLocation', {})
+        city = location.get('city', '')
+        country = location.get('country', '')
+        location_str = f"{city}, {country}" if city else country
+        
+        # Shipping
+        shipping_opts = item.get('shippingOptions', [])
+        shipping_info = "Shipping info available" if shipping_opts else "See listing for shipping"
+        if shipping_opts:
+            first_ship = shipping_opts[0]
+            ship_cost = first_ship.get('shippingCost', {})
+            ship_value = ship_cost.get('value', '')
+            if ship_value == '0.00' or ship_value == '0.0':
+                shipping_info = "✅ Free shipping"
+        
+        # Build the card
+        card_parts = []
+        
+        # Card header with index
+        card_parts.append(f"\n## {index}. {title}\n\n")
+        
+        # Image (if available)
+        if image_url:
+            card_parts.append(f"![Product Image]({image_url})\n\n")
+        
+        # Price and condition row
+        card_parts.append(f"### 💰 **{price_display}** | 📦 {condition}\n\n")
+        
+        # Details
+        card_parts.append(f"- **Seller:** {seller_name} ({seller_feedback}% positive)\n")
+        if location_str:
+            card_parts.append(f"- **Location:** {location_str}\n")
+        card_parts.append(f"- **Shipping:** {shipping_info}\n")
+        
+        # View listing button
+        card_parts.append(f"\n[🔗 View on eBay]({item_url})\n\n")
+        
+        # Divider
+        card_parts.append("---\n\n")
+        
+        return "".join(card_parts)
 

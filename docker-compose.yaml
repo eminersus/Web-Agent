@@ -1,59 +1,19 @@
 services:
-  # LibreChat Frontend
-  librechat:
-    image: ghcr.io/danny-avila/librechat:latest
-    container_name: web-agent-librechat
-    environment:
-      OPENROUTER_KEY: ${OPENROUTER_API_KEY}
-      MONGO_URI: mongodb://mongo:27017/librechat
-      JWT_SECRET: ${JWT_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET:-your_nextauth_secret_change_this}
-      NEXTAUTH_URL: ${NEXTAUTH_URL:-http://localhost:3080}
-      ALLOW_REGISTRATION: ${ALLOW_REGISTRATION:-true}
-      ALLOW_EMAIL_LOGIN: ${ALLOW_EMAIL_LOGIN:-true}
-      APP_URL: ${APP_URL:-http://localhost:3080}
-      # Session and security settings for easier access
-      SESSION_EXPIRY: ${SESSION_EXPIRY:-1000000000}
-      REFRESH_TOKEN_EXPIRY: ${REFRESH_TOKEN_EXPIRY:-1000000000}
-      # Allow unverified email for easier development access
-      ALLOW_UNVERIFIED_EMAIL: ${ALLOW_UNVERIFIED_EMAIL:-true}
+  # Frontend - Simple HTML/CSS/JS with nginx
+  frontend:
+    image: nginx:alpine
+    container_name: web-agent-frontend
     volumes:
-      - ./librechat.yaml:/app/librechat.yaml:ro
-      - ./data:/app/data
+      - ./frontend:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
     networks:
       - web-agent-network
     depends_on:
-      - mongo
+      - backend
       - mcp-server
-      - librechat-init
     restart: unless-stopped
     ports:
-      - "3080:3080"
-
-  # MongoDB for LibreChat
-  mongo:
-    image: mongo:6
-    container_name: web-agent-mongo
-    command: ["--bind_ip_all"]
-    volumes:
-      - ./mongo-data:/data/db
-    networks:
-      - web-agent-network
-    restart: unless-stopped
-
-  # LibreChat initialization service
-  librechat-init:
-    image: mongo:6
-    container_name: web-agent-librechat-init
-    volumes:
-      - ./init-librechat.sh:/init-librechat.sh:ro
-    networks:
-      - web-agent-network
-    depends_on:
-      - mongo
-    command: bash /init-librechat.sh
-    restart: "no"
+      - "3080:80"
 
   # MCP Server (FastMCP with SSE)
   mcp-server:
@@ -62,12 +22,17 @@ services:
     container_name: web-agent-mcp-server
     environment:
       MCP_HOST: ${MCP_HOST:-0.0.0.0}
-      MCP_PORT: ${MCP_PORT:-8001}
+      MCP_PORT: 8000
       DEV_MODE: ${DEV_MODE:-false}
+      # eBay API Configuration
+      EBAY_APP_ID: ${EBAY_APP_ID:-}
+      EBAY_CLIENT_ID: ${EBAY_CLIENT_ID:-}
+      EBAY_CLIENT_SECRET: ${EBAY_CLIENT_SECRET:-}
+      EBAY_USE_SANDBOX: ${EBAY_USE_SANDBOX:-false}
     networks:
       - web-agent-network
     ports:
-      - "${MCP_PORT:-8001}:8000"
+      - "8001:8000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "timeout 2 bash -c '</dev/tcp/127.0.0.1/8000' || exit 1"]
@@ -75,8 +40,6 @@ services:
       timeout: 5s
       retries: 10
       start_period: 15s
-    depends_on:
-      - mongo
 
   # Backend Middleware (Optional - for flow control and interruption)
   backend:

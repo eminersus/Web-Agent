@@ -1,53 +1,59 @@
-# Web Agent with LibreChat, OpenRouter, and FastMCP
+# Web Agent with Custom Frontend, OpenRouter, and FastMCP
 
-A modern web agent application using LibreChat as the frontend, OpenRouter for LLM access, and FastMCP (Model Context Protocol) for tool integration. This project follows the architecture pattern from sagemind, implementing a clean separation between the frontend, middleware, and MCP tools.
+A modern web agent application with a lightweight custom frontend, OpenRouter for LLM access, and FastMCP (Model Context Protocol) for tool integration. This project follows the architecture pattern from sagemind, implementing a clean separation between the frontend, middleware, and MCP tools.
+
+> **Note**: This project previously used LibreChat as the frontend. It has been replaced with a simple, customizable HTML/CSS/JS frontend for better flexibility and easier customization. See [FRONTEND_GUIDE.md](FRONTEND_GUIDE.md) for details.
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────┐
-│   LibreChat     │  (Frontend - Port 3080)
-│   (Frontend UI) │
-└────────┬────────┘
-         │
-         │ Direct SSE Connection
-         │
-         ┌────────────────────┐
-         │                    │
-         v                    v
-┌─────────────────┐    ┌─────────────────┐
-│   MCP Server    │    │Backend Middleware│
-│   (FastMCP/SSE) │    │   (Optional)     │
-│   Port 8001     │    │   Port 8000      │
-└─────────────────┘    └─────────────────┘
-         │                      │
-    Tool Execution         Monitoring &
-    via FastMCP           Future Flow Control
-         │                      │
-         v                      v
-   ┌──────────┐          ┌──────────┐
-   │   Tools  │          │OpenRouter│
-   │   API    │          │   API    │
-   └──────────┘          └──────────┘
-
-                  ┌──────────┐
-                  │ MongoDB  │
-                  │ Port     │
-                  │ 27017    │
-                  └──────────┘
+┌─────────────────────────────────────────────────┐
+│           Custom Frontend (Nginx)               │
+│         HTML/CSS/JS - Port 3080                 │
+└─────────────────┬───────────────────────────────┘
+                  │ HTTP/SSE
+                  v
+┌─────────────────────────────────────────────────┐
+│         Backend Middleware (FastAPI)            │
+│     Chat Service + OpenRouter + MCP Client      │
+│                Port 8000                        │
+└─────┬───────────────────────┬───────────────────┘
+      │                       │
+      │ HTTPS                 │ HTTP/REST
+      v                       v
+┌─────────────┐         ┌─────────────────┐
+│ OpenRouter  │         │   MCP Server    │
+│    (LLM)    │         │   (FastMCP)     │
+│   Remote    │         │   Port 8001     │
+└─────────────┘         └─────────────────┘
+                              │
+                         Tool Execution
+                              v
+                        ┌──────────┐
+                        │   Tools  │
+                        │   API    │
+                        └──────────┘
 ```
 
 ### Key Architecture Features
 
-**Direct MCP Connection**: LibreChat connects directly to the MCP server via SSE (Server-Sent Events), similar to sagemind architecture. This provides:
-- Real-time tool execution
-- Efficient streaming responses
-- Native MCP protocol support
+**Custom Lightweight Frontend**: Simple HTML/CSS/JS interface served by nginx
+- No heavy dependencies (no React, Vue, etc.)
+- Easy to customize and extend
+- Fast and responsive
+- Chat history stored in browser localStorage
 
-**Backend Middleware**: Optional layer for:
-- Monitoring and logging
-- Future flow interruption capabilities
-- Custom processing pipelines
+**Streaming Chat Service**: Backend orchestrates the complete flow:
+- Streams responses from OpenRouter to frontend via SSE
+- Automatically detects when LLM wants to use tools
+- Executes tools via MCP server REST API
+- Returns tool results back to LLM
+- Continues until final response
+
+**MCP Server**: FastMCP with dual interfaces:
+- SSE endpoint for MCP protocol (future use)
+- REST endpoints for tool listing and execution
+- Modular tool organization by domain
 - Analytics and debugging
 
 **FastMCP Implementation**: Uses the FastMCP library (same as sagemind) for:

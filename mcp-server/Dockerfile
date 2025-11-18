@@ -21,8 +21,8 @@ RUN pip install -r requirements.txt
 # Copy application code
 COPY . .
 
-# Expose MCP server port
-EXPOSE 8001
+# Expose MCP server port (internal)
+EXPOSE 8000
 
 # Run the FastMCP server with SSE transport
 CMD ["python", "server.py", "--sse"]

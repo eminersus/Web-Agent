@@ -1,14 +1,16 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 import os
 import logging
+import json
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 from .openrouter_service import get_openrouter_service, cleanup_openrouter_service
 from .mcp_client import get_mcp_client, cleanup_mcp_client
+from .chat_service import ChatService
 
 # Setup logging
 logging.basicConfig(
@@ -245,6 +247,56 @@ async def get_log_stats():
         "message": "Log statistics not yet implemented",
         "note": "This endpoint will provide insights into system usage, popular tools, and performance metrics"
     })
+
+# =============================================================================
+# Chat Endpoints
+# =============================================================================
+
+class ChatMessage(BaseModel):
+    """A single chat message"""
+    role: str
+    content: str
+
+class ChatRequest(BaseModel):
+    """Request for chat completion"""
+    messages: List[ChatMessage]
+    model: Optional[str] = None
+    stream: bool = True
+    temperature: float = 0.7
+    max_tokens: Optional[int] = None
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """
+    Stream chat completion with MCP tool support.
+    
+    This endpoint:
+    1. Sends messages to OpenRouter
+    2. Handles tool calls by executing them via MCP server
+    3. Streams responses back to the client
+    """
+    chat_service = ChatService(
+        openrouter=get_openrouter_service(),
+        mcp_client=get_mcp_client()
+    )
+    
+    try:
+        # Convert Pydantic models to dicts
+        messages = [{"role": msg.role, "content": msg.content} for msg in request.messages]
+        
+        # Stream the chat completion
+        return StreamingResponse(
+            chat_service.stream_chat_with_tools(
+                messages=messages,
+                model=request.model,
+                temperature=request.temperature,
+                max_tokens=request.max_tokens
+            ),
+            media_type="text/event-stream"
+        )
+    except Exception as e:
+        logger.error(f"Error in chat stream: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 # =============================================================================
 # Development/Debug Endpoints
