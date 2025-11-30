@@ -3,139 +3,82 @@ Basic Tools API - Time, calculations, and text analysis
 """
 
 from fastmcp import FastMCP
-from datetime import datetime
-from typing import Annotated
+from typing import Annotated, List, Dict, Any
 
 
 class ToolsAPI:
     """Basic utility tools for the Web Agent"""
-    
+
     def __init__(self, mcp: FastMCP):
         """
         Initialize ToolsAPI and register tools with the MCP instance.
-        
+
         Args:
             mcp: FastMCP instance to register tools with
         """
         self.mcp = mcp
         self._register_tools()
-    
+
     def _register_tools(self):
         """Register all tools with the MCP instance."""
-        self.mcp.tool()(self.get_current_time)
-        self.mcp.tool()(self.calculate)
-        self.mcp.tool()(self.analyze_text)
-    
-    def get_current_time(self) -> str:
-        """
-        Get the current date and time in a human-readable format.
-        
-        Returns:
-            Current date and time as a formatted string
-        
-        Example:
-            >>> get_current_time()
-            "Current time: 2024-01-15 14:30:45"
-        """
-        now = datetime.now()
-        return f"Current time: {now.strftime('%Y-%m-%d %H:%M:%S')}"
-    
-    def calculate(
+        self.mcp.tool()(self.display_product_cards)
+
+    def display_product_cards(
         self,
-        expression: Annotated[str, "Mathematical expression to evaluate (e.g., '2 + 2 * 3', '(10 + 5) / 3')"]
-    ) -> str:
-        """
-        Calculate a mathematical expression safely.
-        
-        Supports basic arithmetic operations: +, -, *, /, %, ()
-        
-        Args:
-            expression: Mathematical expression as a string
-        
-        Returns:
-            Result of the calculation or error message
-        
-        Example:
-            >>> calculate("2 + 2 * 3")
-            "Result: 8"
-            >>> calculate("(10 + 5) / 3")
-            "Result: 5.0"
-        """
-        try:
-            # Only allow safe characters for evaluation
-            allowed_chars = set('0123456789+-*/()%. ')
-            if not all(c in allowed_chars for c in expression):
-                return "Error: Expression contains invalid characters. Only numbers and operators (+, -, *, /, %, ()) are allowed."
-            
-            # Evaluate safely with no access to builtins
-            result = eval(expression, {"__builtins__": {}}, {})
-            return f"Result: {result}"
-        except ZeroDivisionError:
-            return "Error: Division by zero"
-        except SyntaxError:
-            return "Error: Invalid mathematical expression syntax"
-        except Exception as e:
-            return f"Error calculating expression: {str(e)}"
-    
-    def analyze_text(
-        self,
-        text: Annotated[str, "Text to analyze"],
-        analysis_type: Annotated[str, "Type of analysis: 'sentiment', 'keywords', or 'summary'"] = "sentiment"
+        products: Annotated[
+            List[Dict[str, Any]],
+            """List of products to display as cards. Each product should have:
+            - title: Product title (required)
+            - price: Price as string with currency symbol (e.g., "$299.99")
+            - image: Image URL (required)
+            - url: Link to product page (required)
+            - itemId: Unique product identifier (optional)
+            - condition: Item condition (e.g., "New", "Used") (optional)
+            - seller: Seller name or info (optional)
+            - location: Location string (optional)
+            - shipping: Shipping info (optional)
+            """,
+        ],
     ) -> dict:
         """
-        Analyze text for sentiment, keywords, or generate a summary.
-        
-        This is a placeholder implementation. In production, you would integrate
-        with NLP libraries or APIs.
-        
-        Args:
-            text: The text to analyze
-            analysis_type: Type of analysis - "sentiment", "keywords", or "summary"
-        
-        Returns:
-            Dictionary containing analysis results
-        
-        Example:
-            >>> analyze_text("This is a great product!", "sentiment")
-            {"text_length": 24, "word_count": 5, "analysis_type": "sentiment", 
-             "sentiment": "positive", "confidence": 0.75}
-        """
-        result = {
-            "text_length": len(text),
-            "word_count": len(text.split()),
-            "analysis_type": analysis_type,
-        }
-        
-        if analysis_type == "sentiment":
-            # Simple placeholder sentiment analysis
-            positive_words = {"great", "excellent", "good", "wonderful", "amazing", "fantastic"}
-            negative_words = {"bad", "terrible", "awful", "horrible", "poor", "worst"}
-            
-            words = set(text.lower().split())
-            pos_count = len(words & positive_words)
-            neg_count = len(words & negative_words)
-            
-            if pos_count > neg_count:
-                result["sentiment"] = "positive"
-                result["confidence"] = 0.75
-            elif neg_count > pos_count:
-                result["sentiment"] = "negative"
-                result["confidence"] = 0.75
-            else:
-                result["sentiment"] = "neutral"
-                result["confidence"] = 0.60
-        
-        elif analysis_type == "keywords":
-            # Extract first 5 words as keywords (placeholder)
-            words = text.split()
-            result["keywords"] = words[:5] if len(words) > 5 else words
-        
-        elif analysis_type == "summary":
-            # Simple truncation summary
-            result["summary"] = text[:100] + "..." if len(text) > 100 else text
-        
-        else:
-            result["error"] = f"Unknown analysis type: {analysis_type}"
-        
-        return result
+        Display product results as visual cards in the UI.
 
+        This tool signals the frontend to render products as visual cards instead of text.
+        Use this tool after searching for products to present them in a user-friendly format.
+
+        The backend intercepts this call and sends a special event to the frontend
+        with structured product data for card rendering.
+
+        Args:
+            products: List of product dictionaries with title, price, image, and url
+
+        Returns:
+            Confirmation that products will be displayed as cards
+
+        Example:
+            After searching eBay for laptops, call this to display top 5:
+            >>> display_product_cards([
+            ...     {
+            ...         "title": "Dell XPS 13 Laptop",
+            ...         "price": "$899.99",
+            ...         "image": "https://...",
+            ...         "url": "https://ebay.com/itm/...",
+            ...         "itemId": "123456789",
+            ...         "condition": "New",
+            ...         "seller": "authorized_dealer",
+            ...         "location": "New York, US",
+            ...         "shipping": "Free shipping"
+            ...     },
+            ...     # ... more products
+            ... ])
+        """
+        # This tool is intercepted by the backend chat service
+        # It never actually executes on the MCP server
+        # The backend sends a special SSE event to the frontend instead
+
+        return {
+            "success": True,
+            "message": f"Displaying {len(products)} product(s) as cards",
+            "count": len(products),
+            "note": "This tool is intercepted by the backend for UI rendering",
+        }

@@ -185,56 +185,6 @@ async def list_openrouter_models():
 # Future Flow Control Endpoints (Placeholders)
 # =============================================================================
 
-class InterruptionRequest(BaseModel):
-    """Request to interrupt an ongoing conversation"""
-    conversation_id: str
-    reason: Optional[str] = None
-
-@app.post("/api/flow/interrupt")
-async def interrupt_conversation(request: InterruptionRequest):
-    """
-    Interrupt an ongoing conversation (Future feature).
-    
-    This is a placeholder for future functionality where the backend
-    can interrupt and redirect LLM flows.
-    """
-    logger.info(f"Interruption requested for conversation: {request.conversation_id}")
-    
-    return JSONResponse({
-        "success": True,
-        "conversation_id": request.conversation_id,
-        "message": "Interruption feature not yet implemented",
-        "note": "This endpoint is a placeholder for future flow control capabilities"
-    })
-
-class FlowRedirectRequest(BaseModel):
-    """Request to redirect conversation flow"""
-    conversation_id: str
-    new_instructions: str
-    context: Optional[Dict[str, Any]] = None
-
-@app.post("/api/flow/redirect")
-async def redirect_flow(request: FlowRedirectRequest):
-    """
-    Redirect conversation flow (Future feature).
-    
-    This is a placeholder for future functionality where the backend
-    can redirect conversations to different flows or instructions.
-    """
-    logger.info(f"Flow redirect requested for conversation: {request.conversation_id}")
-    
-    return JSONResponse({
-        "success": True,
-        "conversation_id": request.conversation_id,
-        "new_instructions": request.new_instructions,
-        "message": "Flow redirect feature not yet implemented",
-        "note": "This endpoint is a placeholder for future flow control capabilities"
-    })
-
-# =============================================================================
-# Logging and Monitoring Endpoints
-# =============================================================================
-
 @app.get("/api/logs/stats")
 async def get_log_stats():
     """
@@ -297,21 +247,3 @@ async def chat_stream(request: ChatRequest):
     except Exception as e:
         logger.error(f"Error in chat stream: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
-
-# =============================================================================
-# Development/Debug Endpoints
-# =============================================================================
-
-@app.get("/api/debug/config")
-async def debug_config():
-    """Debug endpoint to view current configuration (development only)"""
-    if os.getenv("ENVIRONMENT") != "development":
-        raise HTTPException(status_code=403, detail="Debug endpoints only available in development")
-    
-    return JSONResponse({
-        "environment": os.getenv("ENVIRONMENT"),
-        "debug": os.getenv("DEBUG"),
-        "mcp_server_url": os.getenv("MCP_SERVER_URL"),
-        "openrouter_base_url": os.getenv("OPENROUTER_BASE_URL"),
-        "cors_origins": os.getenv("CORS_ALLOW_ORIGINS"),
-    })
