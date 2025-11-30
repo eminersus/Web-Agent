@@ -11,9 +11,14 @@ This service orchestrates:
 
 import logging
 import json
+import os
 from typing import AsyncGenerator, Dict, List, Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# Environment variable to control full tool response logging
+LOG_FULL_TOOL_RESPONSES = os.getenv("LOG_FULL_TOOL_RESPONSES", "false").lower() == "true"
+TOOL_RESPONSE_LOG_LIMIT = int(os.getenv("TOOL_RESPONSE_LOG_LIMIT", "200"))
 
 
 class ChatService:

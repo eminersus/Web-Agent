@@ -37,6 +37,8 @@ This server provides tools for:
 - Task management
 - Text analysis
 - eBay item search and discovery
+- eBay category suggestions
+- eBay item aspects for categories
 
 Use these tools to help users accomplish their goals.
 """

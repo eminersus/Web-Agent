@@ -60,6 +60,11 @@ services:
       # OpenRouter configuration
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
       OPENROUTER_BASE_URL: https://openrouter.ai/api/v1
+      # Tool Response Logging
+      LOG_FULL_TOOL_RESPONSES: ${LOG_FULL_TOOL_RESPONSES:-false}
+      TOOL_RESPONSE_LOG_LIMIT: ${TOOL_RESPONSE_LOG_LIMIT:-200}
+      # Logging Level
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
     volumes:
       - ./backend/app:/app/app:ro
     depends_on:

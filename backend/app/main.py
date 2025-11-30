@@ -13,11 +13,13 @@ from .mcp_client import get_mcp_client, cleanup_mcp_client
 from .chat_service import ChatService
 
 # Setup logging
+log_level = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, log_level, logging.INFO),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+logger.info(f"Logging level set to: {log_level}")
 
 app = FastAPI(
     title="Web Agent Backend Middleware",
