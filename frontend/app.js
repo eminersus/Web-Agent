@@ -172,6 +172,7 @@ async function streamChatCompletion(messages, thinkingId) {
     // Read the stream
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    let buffer = ''; // Buffer for incomplete lines
 
     try {
         while (true) {
@@ -181,9 +182,12 @@ async function streamChatCompletion(messages, thinkingId) {
                 break;
             }
 
-            // Decode the chunk
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split('\n');
+            // Decode the chunk and add to buffer
+            buffer += decoder.decode(value, { stream: true });
+
+            // Split by newlines, but keep the last incomplete line in buffer
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep the last (potentially incomplete) line
 
             for (const line of lines) {
                 if (!line.trim() || !line.startsWith('data: ')) {
@@ -247,12 +251,12 @@ async function streamChatCompletion(messages, thinkingId) {
                             id: toolResult.id,
                             name: toolResult.name,
                             resultSize: JSON.stringify(toolResult.result).length,
-                            availableToolCalls: toolCallsInfo.map(tc => ({id: tc.id, name: tc.name, hasMessageId: !!tc._messageId}))
+                            availableToolCalls: toolCallsInfo.map(tc => ({ id: tc.id, name: tc.name, hasMessageId: !!tc._messageId }))
                         });
-                        
+
                         // Find the matching tool call by ID
                         let matchingToolCall = toolCallsInfo.find(tc => tc.id === parsed.id);
-                        
+
                         // If not found by ID, try to find by name (most recent one)
                         if (!matchingToolCall) {
                             console.warn('[Tool Result] No match by ID, trying by name:', parsed.name);
@@ -262,7 +266,7 @@ async function streamChatCompletion(messages, thinkingId) {
                                 console.log('[Tool Result] Found by name:', matchingToolCall.id);
                             }
                         }
-                        
+
                         if (matchingToolCall && matchingToolCall._messageId) {
                             console.log('[Tool Result] Updating tool call:', matchingToolCall._messageId);
                             updateToolCallWithResult(matchingToolCall._messageId, toolResult);
@@ -545,13 +549,13 @@ function createToolCallBox(toolCall, toolResult, messageId) {
 // Update tool call with result
 function updateToolCallWithResult(toolCallId, toolResult) {
     console.log('[updateToolCallWithResult] Called:', { toolCallId, toolResultName: toolResult.name });
-    
+
     const messageElement = document.getElementById(toolCallId);
     if (!messageElement) {
         console.error('[updateToolCallWithResult] Message element not found:', toolCallId);
         return;
     }
-    
+
     // Get stored tool call data
     let toolCallData;
     try {
@@ -560,17 +564,17 @@ function updateToolCallWithResult(toolCallId, toolResult) {
         console.error('[updateToolCallWithResult] Error parsing tool call data:', e);
         return;
     }
-    
+
     // Update stored result
     messageElement.dataset.toolResult = JSON.stringify(toolResult);
-    
+
     // Update the box with result
     const newBox = createToolCallBox(toolCallData, toolResult, toolCallId);
     const oldBox = messageElement.querySelector('.tool-call-box');
     if (oldBox) {
         console.log('[updateToolCallWithResult] Replacing tool call box');
         oldBox.replaceWith(newBox);
-        
+
         // Auto-expand to show the result
         const details = newBox.querySelector('.tool-call-details');
         if (details) {
@@ -580,7 +584,7 @@ function updateToolCallWithResult(toolCallId, toolResult) {
                 toggle.textContent = '▲ Click to collapse';
             }
         }
-        
+
         scrollToBottom();
     } else {
         console.error('[updateToolCallWithResult] Tool call box not found in message element');

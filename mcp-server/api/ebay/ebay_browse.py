@@ -442,9 +442,6 @@ class EbayBrowseAPI:
                 "error": "API request failed",
                 "message": str(e),
                 "type": type(e).__name__
-<<<<<<< Updated upstream
-            }
-=======
             }
     
     def _format_for_display(self, data: Dict[str, Any], requested_limit: int) -> str:
@@ -976,12 +973,12 @@ class EbayBrowseAPI:
                     }
                     # Add usage note to the response
                     data["_usage_guide"] = usage_note
-                
+
                 return data
             else:
                 error_data = response.json() if response.text else {}
                 logger.error(f"eBay Taxonomy API error: {response.status_code} - {error_data}")
-                
+
                 if response.status_code == 401:
                     # Try to refresh token and retry once
                     logger.info("Received 401 error, attempting token refresh...")
@@ -1008,21 +1005,21 @@ class EbayBrowseAPI:
                         "error_code": error_code,
                         "help": "This may indicate the marketplace is not supported or the category tree ID is invalid"
                     }
-                
+
                 return {
                     "error": f"eBay Taxonomy API returned status {response.status_code}",
                     "status_code": response.status_code,
                     "details": error_data,
                     "error_code": error_code
                 }
-        
+
         except requests.Timeout:
             logger.error("eBay Taxonomy API request timed out")
             return {
                 "error": "Request timeout",
                 "message": "eBay Taxonomy API request timed out after 30 seconds"
             }
-        
+
         except Exception as e:
             logger.error(f"Error calling eBay Taxonomy API: {e}", exc_info=True)
             return {
@@ -1030,5 +1027,3 @@ class EbayBrowseAPI:
                 "message": str(e),
                 "type": type(e).__name__
             }
-
->>>>>>> Stashed changes

@@ -12,8 +12,6 @@ from threading import Thread
 from fastapi import FastAPI
 import uvicorn
 from api.tools import ToolsAPI
-from api.web import WebAPI
-from api.tasks import TasksAPI
 from api.ebay import EbayBrowseAPI
 
 # Configure logging
@@ -57,10 +55,6 @@ def get_greeting(name: str) -> str:
 logger.info("Initializing API modules...")
 tools_api = ToolsAPI(mcp)
 logger.info("Tools API initialized")
-web_api = WebAPI(mcp)
-logger.info("Web API initialized")
-tasks_api = TasksAPI(mcp)
-logger.info("Tasks API initialized")
 ebay_api = EbayBrowseAPI(mcp)
 logger.info("eBay Browse API initialized")
 
@@ -102,17 +96,7 @@ def get_mcp_app():
         attr = getattr(tools_api, tool_name)
         if callable(attr) and not tool_name.startswith('_'):
             tool_registry[tool_name] = attr
-    
-    for tool_name in dir(web_api):
-        attr = getattr(web_api, tool_name)
-        if callable(attr) and not tool_name.startswith('_'):
-            tool_registry[tool_name] = attr
-    
-    for tool_name in dir(tasks_api):
-        attr = getattr(tasks_api, tool_name)
-        if callable(attr) and not tool_name.startswith('_'):
-            tool_registry[tool_name] = attr
-    
+
     for tool_name in dir(ebay_api):
         attr = getattr(ebay_api, tool_name)
         if callable(attr) and not tool_name.startswith('_'):
@@ -149,7 +133,7 @@ def get_mcp_app():
                 tools.append(tool_def)
         else:
             # Fallback: introspect from API classes
-            for api_class in [tools_api, web_api, tasks_api, ebay_api]:
+            for api_class in [tools_api, ebay_api]:
                 for method_name in dir(api_class):
                     method = getattr(api_class, method_name)
                     if callable(method) and not method_name.startswith('_') and method_name != 'mcp':
@@ -218,7 +202,7 @@ def get_mcp_app():
         """Execute a tool with given arguments"""
         # Find the tool in our API classes
         tool_func = None
-        for api_class in [tools_api, web_api, tasks_api, ebay_api]:
+        for api_class in [tools_api, ebay_api]:
             if hasattr(api_class, tool_name):
                 tool_func = getattr(api_class, tool_name)
                 break
